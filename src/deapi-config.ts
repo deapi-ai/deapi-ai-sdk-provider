@@ -92,8 +92,8 @@ function isNativeApiV2Surface(url: string): boolean {
  *   positives, while `/API/V2` is still caught.
  */
 export function normalizeBaseURL(baseURL?: string): string {
-  const trimmed = baseURL?.trim() || undefined;
-  const normalized = withoutTrailingSlash(trimmed) ?? DEAPI_DEFAULT_BASE_URL;
+  const normalized =
+    withoutTrailingSlash(baseURL?.trim() || undefined) ?? DEAPI_DEFAULT_BASE_URL;
 
   if (isNativeApiV2Surface(normalized)) {
     throw new Error(
@@ -103,7 +103,41 @@ export function normalizeBaseURL(baseURL?: string): string {
     );
   }
 
+  // Security: the API key travels as a Bearer token on every request. Reject a
+  // baseURL that could leak it — a relative/garbage URL, embedded credentials,
+  // or a cleartext (http) host other than loopback.
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error(
+      `Invalid deAPI baseURL "${normalized}": must be an absolute URL ` +
+        `(e.g. "${DEAPI_DEFAULT_BASE_URL}").`,
+    );
+  }
+  if (url.username || url.password) {
+    throw new Error(
+      `Invalid deAPI baseURL: must not contain embedded credentials.`,
+    );
+  }
+  if (url.protocol !== 'https:' && !isLoopbackHost(url.hostname)) {
+    throw new Error(
+      `Invalid deAPI baseURL "${normalized}": must use https (http is allowed ` +
+        `only for localhost). The API key is sent as a Bearer token and must ` +
+        `not travel over cleartext.`,
+    );
+  }
+
   return normalized;
+}
+
+/** True for loopback hosts where cleartext http is acceptable. */
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]'
+  );
 }
 
 /**
@@ -117,12 +151,6 @@ export function normalizeBaseURL(baseURL?: string): string {
  * This is the core of the lazy-auth contract: importing the package and calling
  * `createDeAPI()` without `DEAPI_API_KEY` must NOT throw. The error only
  * surfaces when a model is actually invoked.
- *
- * Confirmed signatures (from @ai-sdk/provider-utils@4.0.28):
- *   loadApiKey({ apiKey: string | undefined; environmentVariableName: string;
- *     apiKeyParameterName?: string; description: string }): string
- *   combineHeaders(...headers: Array<Record<string, string | undefined>
- *     | undefined>): Record<string, string | undefined>
  */
 export function createLazyHeaders(
   settings: DeAPIProviderSettings,

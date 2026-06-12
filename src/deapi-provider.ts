@@ -102,17 +102,13 @@ function createAuthInjectingFetch(
   resolveHeaders: () => Record<string, string | undefined>,
   baseFetch: FetchFunction | undefined,
 ): FetchFunction {
-  const fetchImpl: FetchFunction = baseFetch ?? globalThis.fetch;
+  const fetchImpl = baseFetch ?? globalThis.fetch;
 
   return (input, init) => {
-    // Headers already present on the outgoing request (set by the SDK), then
-    // the lazily-resolved auth + user headers layered on top via the
-    // user-agent-suffix merger (which lowercases keys and drops undefined
-    // values, so it never crashes on an undefined header value).
-    const existing: Record<string, string> = {};
-    new Headers(init?.headers).forEach((value, key) => {
-      existing[key] = value;
-    });
+    // Headers already on the request (set by the SDK), then lazily-resolved
+    // auth + user headers layered on top. withUserAgentSuffix lowercases keys
+    // and drops undefined values.
+    const existing = Object.fromEntries(new Headers(init?.headers));
     const merged = withUserAgentSuffix({ ...existing, ...resolveHeaders() });
 
     const headers = new Headers();
@@ -120,7 +116,10 @@ function createAuthInjectingFetch(
       headers.set(key, value);
     }
 
-    return fetchImpl(input, { ...init, headers });
+    // Security: `redirect: 'manual'` so the Bearer token is never auto-replayed
+    // to another origin via a 3xx from the configured host. A redirect surfaces
+    // as a non-2xx response instead of silently following.
+    return fetchImpl(input, { ...init, headers, redirect: 'manual' });
   };
 }
 
@@ -144,13 +143,11 @@ export function createDeAPI(
   const url = ({ path }: { modelId: string; path: string }): string =>
     `${baseURL}${path}`;
 
-  // The per-request `headers` resolver passed to the model classes returns NO
-  // auth: auth is injected by the custom `fetch` above to keep it truly lazy.
+  // The per-request headers resolver returns NO auth: auth is injected by the
+  // custom fetch above to keep it truly lazy.
   const headers = (): Record<string, string | undefined> => ({});
 
-  const embeddingModel = (
-    modelId: DeAPIEmbeddingModelId,
-  ): EmbeddingModelV3 =>
+  const embeddingModel = (modelId: DeAPIEmbeddingModelId): EmbeddingModelV3 =>
     new OpenAICompatibleEmbeddingModel(modelId, {
       provider: 'deapi.embedding',
       url,

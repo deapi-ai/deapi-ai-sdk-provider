@@ -55,10 +55,7 @@ export type DeAPIErrorData = z.infer<typeof deapiErrorDataSchema>;
  * - Native shape: the top-level `message`.
  */
 export function deapiErrorToMessage(data: DeAPIErrorData): string {
-  if ('error' in data) {
-    return data.error.message;
-  }
-  return data.message;
+  return 'error' in data ? data.error.message : data.message;
 }
 
 /**
