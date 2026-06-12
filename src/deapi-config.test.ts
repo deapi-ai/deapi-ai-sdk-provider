@@ -94,6 +94,33 @@ describe('normalizeBaseURL', () => {
       'https://oai.deapi.ai/v1?ref=/api/v2',
     );
   });
+
+  // Security: the Bearer key must never travel to an unintended/cleartext host.
+  it('rejects a non-absolute / garbage URL', () => {
+    expect(() => normalizeBaseURL('not-a-url')).toThrow(/absolute URL/);
+  });
+
+  it('rejects a baseURL with embedded credentials', () => {
+    expect(() =>
+      normalizeBaseURL('https://user:pass@oai.deapi.ai/v1'),
+    ).toThrow(/credentials/i);
+  });
+
+  it('rejects cleartext http for a non-loopback host', () => {
+    expect(() => normalizeBaseURL('http://oai.deapi.ai/v1')).toThrow(/https/);
+  });
+
+  it('allows http for loopback hosts (localhost / 127.0.0.1 / [::1])', () => {
+    expect(normalizeBaseURL('http://localhost:8080/v1')).toBe(
+      'http://localhost:8080/v1',
+    );
+    expect(normalizeBaseURL('http://127.0.0.1:8080/v1')).toBe(
+      'http://127.0.0.1:8080/v1',
+    );
+    expect(normalizeBaseURL('http://[::1]:8080/v1')).toBe(
+      'http://[::1]:8080/v1',
+    );
+  });
 });
 
 describe('createLazyHeaders (lazy auth core)', () => {
