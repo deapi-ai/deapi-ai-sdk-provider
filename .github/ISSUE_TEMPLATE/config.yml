@@ -2,10 +2,10 @@ blank_issues_enabled: false
 contact_links:
   - name: deAPI documentation
     url: https://docs.deapi.ai
-    about: Questions about the deAPI platform, models, quotas, or billing. (PLACEHOLDER — confirm the real docs URL before publish.)
+    about: Questions about the deAPI platform, models, quotas, or billing.
   - name: deAPI Discord
-    url: https://discord.gg/deapi
-    about: Community chat and platform support. (PLACEHOLDER — replace with the real Discord invite before publish.)
+    url: https://discord.com/invite/UFfK5YRBsr
+    about: Community chat and platform support.
   - name: Vercel AI SDK documentation
     url: https://ai-sdk.dev
     about: General AI SDK usage not specific to the deAPI provider.

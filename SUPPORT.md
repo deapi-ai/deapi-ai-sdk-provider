@@ -10,9 +10,7 @@ what to expect.
   appropriate template.
 - **Questions about the deAPI platform, models, billing, or quotas:**
   see the [deAPI documentation](https://docs.deapi.ai)
-  <!-- PLACEHOLDER: confirm the canonical deAPI docs URL before publish. -->
-  or ask in the [deAPI Discord](https://discord.gg/deapi).
-  <!-- PLACEHOLDER: replace with the real deAPI Discord invite link before publish. -->
+  or ask in the [deAPI Discord](https://discord.com/invite/UFfK5YRBsr).
 - **Security vulnerabilities:** do **not** use the channels above. Follow
   [SECURITY.md](./SECURITY.md) instead.
 
@@ -35,7 +33,7 @@ This repository supports the `@deapi/ai-sdk-provider` package itself:
 - **LLM / chat / completion / tool-calling / structured output.** deAPI is a non-LLM
   provider; `languageModel()` intentionally throws `NoSuchModelError`.
 - The deAPI service, its models, account, billing, or quota issues — these belong to the
-  [deAPI documentation](https://docs.deapi.ai) and [Discord](https://discord.gg/deapi).
+  [deAPI documentation](https://docs.deapi.ai) and [Discord](https://discord.com/invite/UFfK5YRBsr).
 - General Vercel AI SDK usage unrelated to this provider — see the
   [AI SDK docs](https://ai-sdk.dev).
 
