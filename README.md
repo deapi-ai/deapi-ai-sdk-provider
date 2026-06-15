@@ -56,6 +56,23 @@ const deapi = createDeAPI({
 
 `createDeAPI(settings?)` accepts `apiKey`, `baseURL`, `headers` (extra headers merged into every request), and `fetch` (a custom fetch implementation).
 
+> Do **not** pass an `Authorization` header in `settings.headers`. The provider manages
+> authentication itself (it sets the `Bearer` token from `apiKey` / `DEAPI_API_KEY`). An
+> `Authorization` header in `settings.headers` is rejected so it cannot silently override the
+> real key.
+
+### Canonical API
+
+The provider exposes both canonical methods and short aliases — all are public and supported:
+
+| Canonical | Alias | Returns |
+|---|---|---|
+| `deapi.imageModel(id)` | `deapi.image(id)` | image model |
+| `deapi.embeddingModel(id)` | `deapi.embedding(id)` | embedding model |
+
+`image` / `embedding` are aliases of `imageModel` / `embeddingModel` respectively. Use whichever
+you prefer; the examples below use the short aliases.
+
 ## Image generation
 
 Use the stable `generateImage` from `ai`:
@@ -92,7 +109,7 @@ const { embedding } = await embed({
 console.log(embedding.length); // 1024
 ```
 
-`Bge_M3_FP16` produces 1024-dimensional vectors.
+`Bge_M3_FP16` returns 1024-dimensional vectors at the time of writing — confirm the dimensions for the model you choose (see [Model IDs](#model-ids) below; the slug is illustrative).
 
 ## Model IDs
 
@@ -113,6 +130,7 @@ This release is deliberately scoped. Be aware that:
 
 - **No language / chat / completion models.** deAPI is a non-LLM inference surface. `deapi.languageModel(...)` (and therefore chat/completion usage) throws `NoSuchModelError`.
 - **No tool-calling or structured output.** These depend on language models, which are not provided.
+- **No image editing (inpainting) in `0.1.0`.** Only image *generation* is supported. Passing `files` or a `mask` to an image model (image editing / inpainting) throws `UnsupportedFunctionalityError` — this surface is unsupported and untested against deAPI in `0.1.0`. Image editing is planned for `0.2.0`.
 - **No speech or transcription in `0.1.0`.** These modalities are planned for `0.2.0` and are not available yet — do not rely on them from this package.
 - **Video is not exposed through the AI SDK.** deAPI video generation is available only via the deAPI native REST API; the AI SDK provider interface (`ProviderV3`) has no video model, so there is no AI SDK surface for it here.
 
@@ -143,6 +161,10 @@ This package adds deAPI-specific defaults, lazy auth, base-URL validation, and d
 ## Security
 
 Errors thrown by this provider are AI SDK `APICallError` instances. These carry `responseBody` and `requestBodyValues` (which includes your prompt / input). Do **not** blindly log full error objects in production — they may contain user input. The Bearer API key is never included in error objects or logs.
+
+**No automatic redirect following.** The provider issues requests with `redirect: 'manual'`, so it does **not** auto-follow HTTP redirects (3xx) returned by the API. This is a deliberate security default: it prevents your `Bearer` API key from being silently replayed to a different origin via a redirect. A redirect response surfaces as an error rather than being followed.
+
+**Auth is provider-managed.** Do not set an `Authorization` header via `settings.headers` — the provider derives the `Bearer` token from `apiKey` / `DEAPI_API_KEY` and rejects an `Authorization` header passed in `settings.headers` to prevent it from overriding the real key.
 
 ## Compatibility
 

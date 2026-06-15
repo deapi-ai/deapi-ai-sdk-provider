@@ -1,7 +1,6 @@
 import {
   combineHeaders,
   loadApiKey,
-  withoutTrailingSlash,
   type FetchFunction,
 } from '@ai-sdk/provider-utils';
 
@@ -49,9 +48,9 @@ export interface DeAPIProviderSettings {
 
   /**
    * Extra headers merged into every request. Authorization is added
-   * automatically from the resolved API key.
+   * automatically from the resolved API key and MUST NOT be set here.
    */
-  headers?: Record<string, string>;
+  headers?: Record<string, string | undefined>;
 
   /**
    * Custom fetch implementation (e.g. for testing or proxies).
@@ -81,7 +80,8 @@ function isNativeApiV2Surface(url: string): boolean {
  *
  * - Treats an empty/whitespace-only value as unset (falls back to the default)
  *   so requests never go to a relative `/embeddings` URL.
- * - Strips a trailing slash via `withoutTrailingSlash`.
+ * - Strips ALL trailing slashes from the path so `https://h/v1//` and
+ *   `https://h/v1` produce the same endpoint.
  * - Guards against the native async surface: if the URL's path contains an
  *   `/api/v2` segment we THROW a clear configuration error rather than warn.
  *   Rationale: pointing this synchronous OpenAI-compatible provider at the
@@ -90,14 +90,17 @@ function isNativeApiV2Surface(url: string): boolean {
  *   the cleaner, KISS choice. The match is a path-segment boundary (case
  *   insensitive) so `/api/v20` and a `/api/v2` query string are not false
  *   positives, while `/API/V2` is still caught.
+ * - Rejects a baseURL carrying a query string or hash fragment: appending a
+ *   model path (`/embeddings`) to such a URL would silently corrupt the request
+ *   target. Per-request query parameters are a future `queryParams` option.
  */
 export function normalizeBaseURL(baseURL?: string): string {
-  const normalized =
-    withoutTrailingSlash(baseURL?.trim() || undefined) ?? DEAPI_DEFAULT_BASE_URL;
+  const trimmed = baseURL?.trim() || undefined;
+  const candidate = trimmed ?? DEAPI_DEFAULT_BASE_URL;
 
-  if (isNativeApiV2Surface(normalized)) {
+  if (isNativeApiV2Surface(candidate)) {
     throw new Error(
-      `Invalid deAPI baseURL "${normalized}": '/api/v2' is the native ` +
+      `Invalid deAPI baseURL "${candidate}": '/api/v2' is the native ` +
         `async/job-based surface and is not OpenAI-compatible. Use the ` +
         `OpenAI-compatible base URL instead (default: "${DEAPI_DEFAULT_BASE_URL}").`,
     );
@@ -108,10 +111,10 @@ export function normalizeBaseURL(baseURL?: string): string {
   // or a cleartext (http) host other than loopback.
   let url: URL;
   try {
-    url = new URL(normalized);
+    url = new URL(candidate);
   } catch {
     throw new Error(
-      `Invalid deAPI baseURL "${normalized}": must be an absolute URL ` +
+      `Invalid deAPI baseURL "${candidate}": must be an absolute URL ` +
         `(e.g. "${DEAPI_DEFAULT_BASE_URL}").`,
     );
   }
@@ -122,13 +125,24 @@ export function normalizeBaseURL(baseURL?: string): string {
   }
   if (url.protocol !== 'https:' && !isLoopbackHost(url.hostname)) {
     throw new Error(
-      `Invalid deAPI baseURL "${normalized}": must use https (http is allowed ` +
+      `Invalid deAPI baseURL "${candidate}": must use https (http is allowed ` +
         `only for localhost). The API key is sent as a Bearer token and must ` +
         `not travel over cleartext.`,
     );
   }
+  if (url.search || url.hash) {
+    throw new Error(
+      `Invalid deAPI baseURL "${candidate}": must not contain a query string ` +
+        `or hash fragment (a model path is appended to it). Per-request query ` +
+        `parameters will be a future "queryParams" option.`,
+    );
+  }
 
-  return normalized;
+  // Strip ALL trailing slashes from the path so `/v1//` collapses to `/v1`.
+  // Rebuild from origin + pathname to avoid re-introducing query/hash (already
+  // rejected above).
+  const path = url.pathname.replace(/\/+$/, '');
+  return `${url.origin}${path}`;
 }
 
 /** True for loopback hosts where cleartext http is acceptable. */
@@ -156,15 +170,32 @@ export function createLazyHeaders(
   settings: DeAPIProviderSettings,
 ): () => Record<string, string | undefined> {
   return () => {
+    // Security: never let a caller-supplied header override the managed Bearer
+    // token. combineHeaders spreads later args last, so a user-set
+    // `Authorization` would otherwise win. Reject it (case-insensitive) with an
+    // actionable message before building any headers.
+    if (settings.headers) {
+      for (const key of Object.keys(settings.headers)) {
+        if (key.toLowerCase() === 'authorization') {
+          throw new Error(
+            `deAPI: do not set an 'Authorization' header in settings.headers; ` +
+              `the API key is managed by the provider via apiKey/DEAPI_API_KEY.`,
+          );
+        }
+      }
+    }
+
     const apiKey = loadApiKey({
       apiKey: settings.apiKey,
       environmentVariableName: DEAPI_API_KEY_ENV_VAR,
       description: 'deAPI API key',
     });
 
-    return combineHeaders(
-      { Authorization: `Bearer ${apiKey}` },
-      settings.headers,
-    );
+    // Authorization is applied LAST so the provider key always wins, even if a
+    // future change loosened the guard above. combineHeaders spreads later args
+    // last.
+    return combineHeaders(settings.headers, {
+      Authorization: `Bearer ${apiKey}`,
+    });
   };
 }

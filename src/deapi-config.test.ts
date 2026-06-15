@@ -29,6 +29,27 @@ describe('normalizeBaseURL', () => {
     );
   });
 
+  it('collapses multiple trailing slashes (Sec-3)', () => {
+    expect(normalizeBaseURL('https://oai.deapi.ai/v1//')).toBe(
+      'https://oai.deapi.ai/v1',
+    );
+    expect(normalizeBaseURL('https://oai.deapi.ai/v1///')).toBe(
+      'https://oai.deapi.ai/v1',
+    );
+  });
+
+  it('rejects a baseURL with a query string (Sec-2)', () => {
+    expect(() => normalizeBaseURL('https://oai.deapi.ai/v1?foo=bar')).toThrow(
+      /query string or hash/i,
+    );
+  });
+
+  it('rejects a baseURL with a hash fragment (Sec-2)', () => {
+    expect(() => normalizeBaseURL('https://oai.deapi.ai/v1#frag')).toThrow(
+      /query string or hash/i,
+    );
+  });
+
   it('leaves a URL without a trailing slash unchanged', () => {
     expect(normalizeBaseURL('https://oai.deapi.ai/v1')).toBe(
       'https://oai.deapi.ai/v1',
@@ -89,9 +110,11 @@ describe('normalizeBaseURL', () => {
     expect(() => normalizeBaseURL('/api/v2')).toThrow(/api\/v2/);
   });
 
-  it('does NOT false-positive on /api/v2 appearing only in a query string', () => {
-    expect(normalizeBaseURL('https://oai.deapi.ai/v1?ref=/api/v2')).toBe(
-      'https://oai.deapi.ai/v1?ref=/api/v2',
+  it('does NOT false-positive on /api/v2 appearing only in a query string (rejected for the query, not the segment)', () => {
+    // The /api/v2 segment guard must not fire on a query string; the URL is
+    // instead rejected by the Sec-2 query-string guard.
+    expect(() => normalizeBaseURL('https://oai.deapi.ai/v1?ref=/api/v2')).toThrow(
+      /query string or hash/i,
     );
   });
 
@@ -186,5 +209,33 @@ describe('createLazyHeaders (lazy auth core)', () => {
     expect(resolve().Authorization).toBe('Bearer dpn-sk-1');
     process.env[DEAPI_API_KEY_ENV_VAR] = 'dpn-sk-2';
     expect(resolve().Authorization).toBe('Bearer dpn-sk-2');
+  });
+
+  it('rejects a capitalized Authorization header in settings.headers (Sec-1)', () => {
+    const resolve = createLazyHeaders({
+      apiKey: 'dpn-sk-x',
+      headers: { Authorization: 'Bearer attacker' },
+    });
+    expect(() => resolve()).toThrow(
+      /do not set an 'Authorization' header/i,
+    );
+  });
+
+  it('rejects a lowercase authorization header in settings.headers (Sec-1)', () => {
+    const resolve = createLazyHeaders({
+      apiKey: 'dpn-sk-x',
+      headers: { authorization: 'Bearer attacker' },
+    });
+    expect(() => resolve()).toThrow(
+      /do not set an 'Authorization' header/i,
+    );
+  });
+
+  it('the managed Bearer token always wins over other user headers', () => {
+    const resolve = createLazyHeaders({
+      apiKey: 'dpn-sk-real',
+      headers: { 'X-Custom': 'abc' },
+    });
+    expect(resolve().Authorization).toBe('Bearer dpn-sk-real');
   });
 });

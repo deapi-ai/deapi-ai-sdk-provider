@@ -8,22 +8,37 @@ name: Release (npm trusted publishing)
 # generated from a local machine.
 #
 # Triggers:
-#   - push of a version tag `v*.*.*` (e.g. v0.1.0), OR
-#   - manual workflow_dispatch (for re-runs / dry checks).
+#   - push of a version tag `v*.*.*` (e.g. v0.1.0)  -> full gate + PUBLISH, OR
+#   - manual workflow_dispatch                       -> PREFLIGHT/DRY-RUN ONLY.
 #
-# Safety:
+# Safety (Audit Blocker-5/6):
+#   - PUBLISH happens ONLY when github.ref starts with 'refs/tags/v'. A manual
+#     workflow_dispatch can never publish — it runs the verify gate as a
+#     dry-run/preflight and stops.
+#   - A dedicated step asserts the pushed tag `vX.Y.Z` matches
+#     package.json.version, failing the release on any mismatch.
 #   - Runs the full pre-publish gate (typecheck, lint, coverage, build, pack
 #     audit, consumer smoke) BEFORE publishing.
 #   - Publishes from a protected GitHub Environment (`release`) so a human must
 #     approve the run (configure required reviewers on the environment in repo
 #     Settings -> Environments).
 #   - Uses npm trusted publishing (OIDC). No NODE_AUTH_TOKEN / .npmrc secret.
+#     npm is PINNED to an explicit version that supports OIDC trusted publishing
+#     (never `@latest`).
 
 on:
   push:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Manual runs are preflight/dry-run ONLY and never publish.'
+        required: true
+        default: 'preflight'
+        type: choice
+        options:
+          - preflight
 
 permissions:
   contents: read
@@ -50,6 +65,21 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Validate tag matches package.json version
+        # Only meaningful for tag pushes. On workflow_dispatch (no tag) this is
+        # skipped — manual runs are preflight-only and never publish.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME}"           # e.g. v0.1.0
+          TAG_VERSION="${TAG#v}"             # strip leading v -> 0.1.0
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "tag=${TAG} tagVersion=${TAG_VERSION} packageVersion=${PKG_VERSION}"
+          if [ "${TAG_VERSION}" != "${PKG_VERSION}" ]; then
+            echo "ERROR: tag '${TAG}' (version '${TAG_VERSION}') does not match package.json version '${PKG_VERSION}'."
+            exit 1
+          fi
+          echo "OK: tag matches package.json version."
+
       - name: Install dependencies
         run: npm ci
 
@@ -65,16 +95,20 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Pack allowlist audit (dry run)
-        run: npm pack --dry-run
+      - name: Pack allowlist audit
+        run: node scripts/pack-audit.mjs
 
-      - name: Consumer smoke (tarball install + ESM/CJS import)
+      - name: Consumer smoke (tarball install + ESM/CJS import + typecheck + mock request)
         run: node scripts/consumer-smoke.mjs
 
   # Stage 2: publish with OIDC from a protected environment requiring approval.
+  # GUARD (Audit Blocker-5): this job runs ONLY for tag pushes (refs/tags/v*).
+  # A manual workflow_dispatch fails this `if` and the job is skipped, so manual
+  # runs are preflight/dry-run only and can never publish.
   publish:
     name: publish to npm (provenance)
     needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -91,14 +125,29 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Validate tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME}"           # e.g. v0.1.0
+          TAG_VERSION="${TAG#v}"             # strip leading v -> 0.1.0
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "tag=${TAG} tagVersion=${TAG_VERSION} packageVersion=${PKG_VERSION}"
+          if [ "${TAG_VERSION}" != "${PKG_VERSION}" ]; then
+            echo "ERROR: tag '${TAG}' (version '${TAG_VERSION}') does not match package.json version '${PKG_VERSION}'."
+            exit 1
+          fi
+          echo "OK: tag matches package.json version."
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build
         run: npm run build
 
-      - name: Ensure npm supports trusted publishing
-        run: npm install -g npm@latest
+      - name: Pin npm to a version that supports trusted publishing
+        # npm trusted publishing (OIDC) + --provenance requires npm >= 11.5.1.
+        # The npm bundled with actions/setup-node (Node 20/22) is 10.x, too old.
+        # Pin an EXPLICIT version (never @latest) for a reproducible toolchain.
+        run: npm install -g npm@11.6.2
 
       - name: Publish (provenance, trusted publishing via OIDC)
         # No NODE_AUTH_TOKEN: npm uses the OIDC id-token for trusted publishing.
