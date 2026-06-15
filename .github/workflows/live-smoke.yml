@@ -1,0 +1,49 @@
+name: Live smoke (manual)
+
+# WARNING: This workflow makes REAL calls to the deAPI API and INCURS REAL COST
+# (image generation + embeddings against oai.deapi.ai). It is intentionally
+# manual-only (workflow_dispatch) and is NOT part of the default CI pipeline.
+# Run it deliberately, sparingly, and only when you need live verification.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "yes" to confirm you accept the REAL API cost of this run.'
+        required: true
+        type: string
+        default: 'no'
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    name: live smoke (real API calls — costs money)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit cost acknowledgement
+        if: ${{ inputs.confirm != 'yes' }}
+        run: |
+          echo "::error::Refusing to run: the 'confirm' input must be exactly 'yes' to acknowledge real API cost."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run live smoke (image + embeddings)
+        env:
+          DEAPI_API_KEY: ${{ secrets.DEAPI_API_KEY }}
+        run: node examples/smoke.mjs

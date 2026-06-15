@@ -1,0 +1,18 @@
+# CODEOWNERS for @deapi/ai-sdk-provider
+#
+# Each line is a file pattern followed by one or more owners. Owners are
+# requested for review when someone opens a PR that modifies matching files.
+# See: https://docs.github.com/articles/about-code-owners
+#
+# PLACEHOLDER: `@deapi-ai/maintainers` is a placeholder owner and must be
+# replaced with a real GitHub user or team that exists and has write access to
+# this repository before CODEOWNERS will function. Until then, GitHub silently
+# ignores unknown owners and no review will be requested.
+
+# Default owner for everything in the repo.
+* @deapi-ai/maintainers
+
+# Governance and security files (kept aligned with the same owners).
+/SECURITY.md            @deapi-ai/maintainers
+/SUPPORT.md             @deapi-ai/maintainers
+/.github/               @deapi-ai/maintainers

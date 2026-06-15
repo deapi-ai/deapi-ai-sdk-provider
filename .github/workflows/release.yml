@@ -1,0 +1,128 @@
+name: Release (npm trusted publishing)
+
+# Governed, attested publish path for @deapi/ai-sdk-provider (PLAN P0.8).
+#
+# This is the ONLY supported way to publish — never `npm publish` from a laptop.
+# package.json sets publishConfig.provenance=true, which REQUIRES publishing from
+# a CI workflow with OIDC (id-token: write). Provenance attestations cannot be
+# generated from a local machine.
+#
+# Triggers:
+#   - push of a version tag `v*.*.*` (e.g. v0.1.0), OR
+#   - manual workflow_dispatch (for re-runs / dry checks).
+#
+# Safety:
+#   - Runs the full pre-publish gate (typecheck, lint, coverage, build, pack
+#     audit, consumer smoke) BEFORE publishing.
+#   - Publishes from a protected GitHub Environment (`release`) so a human must
+#     approve the run (configure required reviewers on the environment in repo
+#     Settings -> Environments).
+#   - Uses npm trusted publishing (OIDC). No NODE_AUTH_TOKEN / .npmrc secret.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Stage 1: run the full pre-publish gate with no elevated permissions.
+  verify:
+    name: pre-publish gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (with coverage)
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack allowlist audit (dry run)
+        run: npm pack --dry-run
+
+      - name: Consumer smoke (tarball install + ESM/CJS import)
+        run: node scripts/consumer-smoke.mjs
+
+  # Stage 2: publish with OIDC from a protected environment requiring approval.
+  publish:
+    name: publish to npm (provenance)
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # OIDC for npm trusted publishing + provenance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish (provenance, trusted publishing via OIDC)
+        # No NODE_AUTH_TOKEN: npm uses the OIDC id-token for trusted publishing.
+        # publishConfig in package.json sets access=public and provenance=true.
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --title "${GITHUB_REF_NAME}"
+
+      - name: Verify published version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "Waiting for npm to reflect version ${PKG_VERSION}..."
+          for i in $(seq 1 10); do
+            PUBLISHED=$(npm view @deapi/ai-sdk-provider version 2>/dev/null || true)
+            if [ "$PUBLISHED" = "$PKG_VERSION" ]; then
+              echo "Confirmed @deapi/ai-sdk-provider@${PUBLISHED} on npm."
+              exit 0
+            fi
+            echo "  attempt $i: registry reports '${PUBLISHED}', expected '${PKG_VERSION}' — retrying in 15s"
+            sleep 15
+          done
+          echo "ERROR: npm did not report version ${PKG_VERSION} after publish."
+          exit 1
