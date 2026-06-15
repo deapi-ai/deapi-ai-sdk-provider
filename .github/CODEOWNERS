@@ -4,14 +4,13 @@
 # requested for review when someone opens a PR that modifies matching files.
 # See: https://docs.github.com/articles/about-code-owners
 #
-# NOTE: the `@deapi-ai/maintainers` team must exist in the deapi-ai org with
-# write access to this repo for CODEOWNERS to take effect (GitHub silently
-# ignores unknown owners). Adjust the team slug here if it differs.
+# NOTE: the `@deapi-ai/deapi-core-team` team must have write access to this repo
+# for CODEOWNERS to take effect (GitHub silently ignores owners without access).
 
 # Default owner for everything in the repo.
-* @deapi-ai/maintainers
+* @deapi-ai/deapi-core-team
 
 # Governance and security files (kept aligned with the same owners).
-/SECURITY.md            @deapi-ai/maintainers
-/SUPPORT.md             @deapi-ai/maintainers
-/.github/               @deapi-ai/maintainers
+/SECURITY.md            @deapi-ai/deapi-core-team
+/SUPPORT.md             @deapi-ai/deapi-core-team
+/.github/               @deapi-ai/deapi-core-team
