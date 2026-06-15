@@ -1,13 +1,17 @@
 {
   "name": "@deapi/ai-sdk-provider",
-  "version": "0.1.0",
-  "description": "Vercel AI SDK provider for deAPI (image generation + embeddings) — OpenAI-compatible inference for open-source models.",
+  "version": "0.2.0",
+  "description": "Vercel AI SDK provider for deAPI (image generation, embeddings, speech, transcription) — OpenAI-compatible inference for open-source models.",
   "keywords": [
     "ai-sdk",
     "vercel-ai",
     "deapi",
     "image-generation",
     "embeddings",
+    "speech",
+    "text-to-speech",
+    "transcription",
+    "speech-to-text",
     "openai-compatible"
   ],
   "author": "deAPI",

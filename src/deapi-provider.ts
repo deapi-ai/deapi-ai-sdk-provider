@@ -5,6 +5,8 @@ import {
   type LanguageModelV3,
   NoSuchModelError,
   type ProviderV3,
+  type SpeechModelV3,
+  type TranscriptionModelV3,
   UnsupportedFunctionalityError,
 } from '@ai-sdk/provider';
 import {
@@ -21,32 +23,38 @@ import {
   type DeAPIEmbeddingModelId,
   type DeAPIImageModelId,
   type DeAPIProviderSettings,
+  type DeAPISpeechModelId,
+  type DeAPITranscriptionModelId,
   normalizeBaseURL,
 } from './deapi-config';
 import {
   type DeAPIErrorData,
   deapiErrorDataSchema,
   deapiErrorToMessage,
+  failedResponseHandler,
 } from './deapi-error';
+import { DeAPISpeechModel } from './speech/deapi-speech-model';
+import { DeAPITranscriptionModel } from './transcription/deapi-transcription-model';
 
 /**
  * deAPI provider.
  *
- * A {@link ProviderV3}-compatible object. For the 0.1.0 release the surface is
- * IMAGE + EMBEDDINGS only:
+ * A {@link ProviderV3}-compatible object. As of 0.2.0 the surface is
+ * IMAGE + EMBEDDINGS + SPEECH + TRANSCRIPTION:
  *
  * - {@link DeAPIProvider.imageModel} / {@link DeAPIProvider.image}
  * - {@link DeAPIProvider.embeddingModel} / {@link DeAPIProvider.embedding}
+ * - {@link DeAPIProvider.speechModel} / {@link DeAPIProvider.speech}
+ * - {@link DeAPIProvider.transcriptionModel} / {@link DeAPIProvider.transcription}
  *
  * {@link DeAPIProvider.languageModel} is required by the `ProviderV3` interface
  * but throws `NoSuchModelError` — chat/completion support ships later.
- * Speech/transcription are intentionally omitted (planned for 0.2.0).
  */
 export interface DeAPIProvider extends ProviderV3 {
   readonly specificationVersion: 'v3';
 
   /**
-   * Not supported in 0.1.0. Always throws `NoSuchModelError`.
+   * Not supported. Always throws `NoSuchModelError`.
    */
   languageModel(modelId: string): LanguageModelV3;
 
@@ -62,11 +70,29 @@ export interface DeAPIProvider extends ProviderV3 {
    */
   imageModel(modelId: DeAPIImageModelId): ImageModelV3;
 
+  /**
+   * Returns a speech (text-to-speech) model backed by the synchronous,
+   * OpenAI-shaped surface (`POST /audio/speech`).
+   */
+  speechModel(modelId: DeAPISpeechModelId): SpeechModelV3;
+
+  /**
+   * Returns a transcription (speech-to-text) model backed by the synchronous,
+   * OpenAI-shaped surface (`POST /audio/transcriptions`).
+   */
+  transcriptionModel(modelId: DeAPITranscriptionModelId): TranscriptionModelV3;
+
   /** Alias for {@link DeAPIProvider.embeddingModel}. */
   embedding(modelId: DeAPIEmbeddingModelId): EmbeddingModelV3;
 
   /** Alias for {@link DeAPIProvider.imageModel}. */
   image(modelId: DeAPIImageModelId): ImageModelV3;
+
+  /** Alias for {@link DeAPIProvider.speechModel}. */
+  speech(modelId: DeAPISpeechModelId): SpeechModelV3;
+
+  /** Alias for {@link DeAPIProvider.transcriptionModel}. */
+  transcription(modelId: DeAPITranscriptionModelId): TranscriptionModelV3;
 }
 
 /**
@@ -196,6 +222,25 @@ export function createDeAPI(
       }),
     );
 
+  const speechModel = (modelId: DeAPISpeechModelId): SpeechModelV3 =>
+    new DeAPISpeechModel(modelId, {
+      url,
+      headers,
+      fetch,
+      failedResponseHandler,
+    });
+
+  const transcriptionModel = (
+    modelId: DeAPITranscriptionModelId,
+  ): TranscriptionModelV3 =>
+    new DeAPITranscriptionModel(modelId, {
+      provider: 'deapi.transcription',
+      url,
+      headers,
+      fetch,
+      failedResponseHandler,
+    });
+
   const languageModel = (modelId: string): LanguageModelV3 => {
     throw new NoSuchModelError({ modelId, modelType: 'languageModel' });
   };
@@ -205,8 +250,12 @@ export function createDeAPI(
     languageModel,
     embeddingModel,
     imageModel,
+    speechModel,
+    transcriptionModel,
     embedding: embeddingModel,
     image: imageModel,
+    speech: speechModel,
+    transcription: transcriptionModel,
   };
 }
 

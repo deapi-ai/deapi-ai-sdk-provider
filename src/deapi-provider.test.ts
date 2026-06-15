@@ -3,7 +3,12 @@ import {
   UnsupportedFunctionalityError,
   type ImageModelV3CallOptions,
 } from '@ai-sdk/provider';
-import { embed, generateImage } from 'ai';
+import {
+  embed,
+  generateImage,
+  experimental_generateSpeech as generateSpeech,
+  experimental_transcribe as transcribe,
+} from 'ai';
 import {
   afterEach,
   beforeEach,
@@ -70,26 +75,21 @@ afterEach(() => {
 });
 
 describe('createDeAPI: provider shape', () => {
-  it('returns an object exposing image, embedding, imageModel, embeddingModel, languageModel', () => {
+  it('returns an object exposing image, embedding, speech, transcription + canonical methods + languageModel', () => {
     const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
     expect(typeof deapi.image).toBe('function');
     expect(typeof deapi.embedding).toBe('function');
+    expect(typeof deapi.speech).toBe('function');
+    expect(typeof deapi.transcription).toBe('function');
     expect(typeof deapi.imageModel).toBe('function');
     expect(typeof deapi.embeddingModel).toBe('function');
+    expect(typeof deapi.speechModel).toBe('function');
+    expect(typeof deapi.transcriptionModel).toBe('function');
     expect(typeof deapi.languageModel).toBe('function');
   });
 
   it('reports specificationVersion v3', () => {
     expect(createDeAPI({ apiKey: 'dpn-sk-x' }).specificationVersion).toBe('v3');
-  });
-
-  it('does NOT expose speech/transcription (omitted until 0.2.0)', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' }) as unknown as Record<
-      string,
-      unknown
-    >;
-    expect(deapi.speechModel).toBeUndefined();
-    expect(deapi.transcriptionModel).toBeUndefined();
   });
 
   it('image and imageModel are the same implementation', () => {
@@ -100,6 +100,29 @@ describe('createDeAPI: provider shape', () => {
   it('embedding and embeddingModel are the same implementation', () => {
     const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
     expect(deapi.embedding).toBe(deapi.embeddingModel);
+  });
+
+  it('speech and speechModel are the same implementation', () => {
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    expect(deapi.speech).toBe(deapi.speechModel);
+  });
+
+  it('transcription and transcriptionModel are the same implementation', () => {
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    expect(deapi.transcription).toBe(deapi.transcriptionModel);
+  });
+
+  it('speech/transcription models report v3 spec + provider + modelId', () => {
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const speech = deapi.speech('Kokoro');
+    expect(speech.specificationVersion).toBe('v3');
+    expect(speech.provider).toBe('deapi.speech');
+    expect(speech.modelId).toBe('Kokoro');
+
+    const transcription = deapi.transcription('WhisperLargeV3');
+    expect(transcription.specificationVersion).toBe('v3');
+    expect(transcription.provider).toBe('deapi.transcription');
+    expect(transcription.modelId).toBe('WhisperLargeV3');
   });
 });
 
@@ -128,6 +151,8 @@ describe('lazy auth contract', () => {
   it('building a model with no key does not throw (still lazy)', () => {
     expect(() => createDeAPI().embedding('Bge_M3_FP16')).not.toThrow();
     expect(() => createDeAPI().image('Flux1schnell')).not.toThrow();
+    expect(() => createDeAPI().speech('Kokoro')).not.toThrow();
+    expect(() => createDeAPI().transcription('WhisperLargeV3')).not.toThrow();
   });
 
   it('the missing-key error surfaces only at invocation time (embed)', async () => {
@@ -218,6 +243,112 @@ describe('generateImage() request/response', () => {
     expect(body.response_format).toBe('b64_json');
 
     expect(result.image.base64).toBe('aGVsbG8=');
+  });
+});
+
+describe('generateSpeech() request/response', () => {
+  /** Builds a fetch mock returning binary audio, recording calls. */
+  function audioFetch(bytes: Uint8Array): Mock {
+    return vi.fn(async () =>
+      new Response(bytes, {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }),
+    );
+  }
+
+  it('hits <baseURL>/audio/speech with Authorization and returns audio bytes', async () => {
+    process.env[ENV_KEY] = 'dpn-sk-envkey';
+    const audioBytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const fetchMock = audioFetch(audioBytes);
+    const deapi = createDeAPI({ fetch: fetchMock });
+
+    const { audio } = await generateSpeech({
+      model: deapi.speech('Kokoro'),
+      text: 'hello world',
+      voice: 'alloy',
+    });
+
+    const { url, init } = lastRequest(fetchMock);
+    expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/audio/speech`);
+    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-envkey');
+
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('Kokoro');
+    expect(body.input).toBe('hello world');
+    expect(body.voice).toBe('alloy');
+    expect(body.response_format).toBe('mp3');
+
+    expect(audio.uint8Array).toEqual(audioBytes);
+  });
+
+  it('a native-shaped error surfaces its message end-to-end (speech)', async () => {
+    const fetchMock = jsonFetch(422, {
+      data: null,
+      message: 'Native speech error',
+      statusCode: 422,
+    });
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    let thrown: unknown;
+    try {
+      await generateSpeech({
+        model: deapi.speech('Kokoro'),
+        text: 'x',
+        maxRetries: 0,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    const err = thrown as { statusCode?: number; message?: string };
+    expect(err.statusCode).toBe(422);
+    expect(String(err.message)).toContain('Native speech error');
+  });
+});
+
+describe('transcribe() request/response', () => {
+  it('hits <baseURL>/audio/transcriptions with Authorization and returns text', async () => {
+    process.env[ENV_KEY] = 'dpn-sk-envkey';
+    const fetchMock = jsonFetch(200, { text: 'transcribed words' });
+    const deapi = createDeAPI({ fetch: fetchMock });
+
+    // Lead with mp3 magic bytes (0xFF 0xFB) so the AI SDK detects audio/mpeg.
+    const { text } = await transcribe({
+      model: deapi.transcription('WhisperLargeV3'),
+      audio: new Uint8Array([0xff, 0xfb, 10, 20, 30]),
+    });
+
+    const { url, init } = lastRequest(fetchMock);
+    expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/audio/transcriptions`);
+    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-envkey');
+    expect(init.body).toBeInstanceOf(FormData);
+    const form = init.body as unknown as FormData;
+    expect(form.get('model')).toBe('WhisperLargeV3');
+    expect(form.get('response_format')).toBe('json');
+    expect(form.get('file')).toBeInstanceOf(Blob);
+
+    expect(text).toBe('transcribed words');
+  });
+
+  it('a native-shaped error surfaces its message end-to-end (transcription)', async () => {
+    const fetchMock = jsonFetch(422, {
+      data: null,
+      message: 'Native transcription error',
+      statusCode: 422,
+    });
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    let thrown: unknown;
+    try {
+      await transcribe({
+        model: deapi.transcription('WhisperLargeV3'),
+        audio: new Uint8Array([0xff, 0xfb, 1, 2, 3]),
+        maxRetries: 0,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    const err = thrown as { statusCode?: number; message?: string };
+    expect(err.statusCode).toBe(422);
+    expect(String(err.message)).toContain('Native transcription error');
   });
 });
 

@@ -31,6 +31,18 @@ export type DeAPIImageModelId = 'Flux1schnell' | (string & {});
 export type DeAPIEmbeddingModelId = 'Bge_M3_FP16' | (string & {});
 
 /**
+ * Known speech (text-to-speech) model slug. Open-ended for the same reason as
+ * above.
+ */
+export type DeAPISpeechModelId = 'Kokoro' | (string & {});
+
+/**
+ * Known transcription (speech-to-text) model slug. Open-ended for the same
+ * reason as above.
+ */
+export type DeAPITranscriptionModelId = 'WhisperLargeV3' | (string & {});
+
+/**
  * User-facing settings for {@link createDeAPI}.
  */
 export interface DeAPIProviderSettings {

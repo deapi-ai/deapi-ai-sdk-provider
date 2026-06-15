@@ -12,9 +12,11 @@
 //      (c) importing WITHOUT DEAPI_API_KEY must NOT throw (lazy auth)
 //      (d) TYPECHECK: a .ts consumer importing { createDeAPI } must `tsc
 //                     --noEmit` clean against the shipped .d.ts
-//      (e) MOCK REQUEST: with a fake fetch, drive embed()/generateImage() from
-//                        'ai' through the tarball and assert URL/headers/body +
-//                        lazy auth (no key at construct, key resolved per call)
+//      (e) MOCK REQUEST: with a fake fetch, drive embed()/generateImage()/
+//                        generateSpeech()/transcribe() from 'ai' through the
+//                        tarball and assert URL/headers/body (incl. multipart
+//                        FormData for transcription) + lazy auth (no key at
+//                        construct, key resolved per call)
 //
 // Determinism (Audit Blocker-3/4):
 //   - every child process has an explicit timeout (cannot hang CI);
@@ -285,14 +287,17 @@ try {
     mockFile,
     [
       `import { createDeAPI } from '${PKG_NAME}';`,
-      `import { embed, generateImage } from 'ai';`,
+      `import { embed, generateImage, experimental_generateSpeech as generateSpeech, experimental_transcribe as transcribe } from 'ai';`,
       ``,
       `const calls = [];`,
+      `function isFormData(b) { return typeof FormData !== 'undefined' && b instanceof FormData; }`,
       `function fakeFetch(input, init) {`,
       `  const url = typeof input === 'string' ? input : input.url;`,
       `  const headers = Object.fromEntries(new Headers(init?.headers));`,
-      `  const body = init?.body ? JSON.parse(init.body) : undefined;`,
-      `  calls.push({ url, headers, body });`,
+      `  const rawBody = init?.body;`,
+      `  const body = isFormData(rawBody) ? undefined : (rawBody ? JSON.parse(rawBody) : undefined);`,
+      `  const formData = isFormData(rawBody) ? rawBody : undefined;`,
+      `  calls.push({ url, headers, body, formData });`,
       `  if (url.endsWith('/embeddings')) {`,
       `    return Promise.resolve(new Response(JSON.stringify({`,
       `      data: [{ embedding: [0.1, 0.2, 0.3] }],`,
@@ -303,6 +308,16 @@ try {
       `    return Promise.resolve(new Response(JSON.stringify({`,
       `      data: [{ b64_json: Buffer.from('fake-image-bytes').toString('base64') }],`,
       `    }), { status: 200, headers: { 'content-type': 'application/json' } }));`,
+      `  }`,
+      `  if (url.endsWith('/audio/speech')) {`,
+      `    return Promise.resolve(new Response(Buffer.from('fake-mp3-audio-bytes'), {`,
+      `      status: 200, headers: { 'content-type': 'audio/mpeg' },`,
+      `    }));`,
+      `  }`,
+      `  if (url.endsWith('/audio/transcriptions')) {`,
+      `    return Promise.resolve(new Response(JSON.stringify({ text: 'hello from deapi' }), {`,
+      `      status: 200, headers: { 'content-type': 'application/json' },`,
+      `    }));`,
       `  }`,
       `  throw new Error('unexpected URL in mock fetch: ' + url);`,
       `}`,
@@ -332,6 +347,28 @@ try {
       `if (imgCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header (image): ' + imgCall.headers['authorization']); process.exit(30); }`,
       `if (imgCall.body?.model !== 'Flux1schnell') { console.error('bad image model in body: ' + JSON.stringify(imgCall.body)); process.exit(31); }`,
       `if (imgCall.body?.prompt !== 'a red cube') { console.error('bad image prompt in body: ' + JSON.stringify(imgCall.body)); process.exit(32); }`,
+      ``,
+      `// --- generateSpeech() ---`,
+      `const speechRes = await generateSpeech({ model: provider.speech('Kokoro'), text: 'Hello from deAPI.', voice: 'alloy' });`,
+      `if (!speechRes.audio || !speechRes.audio.uint8Array || speechRes.audio.uint8Array.length === 0) { console.error('no audio returned'); process.exit(33); }`,
+      `const speechCall = calls.find((c) => c.url.endsWith('/audio/speech'));`,
+      `if (!speechCall) { console.error('no /audio/speech request captured'); process.exit(34); }`,
+      `if (speechCall.url !== 'https://oai.deapi.ai/v1/audio/speech') { console.error('bad speech URL: ' + speechCall.url); process.exit(35); }`,
+      `if (speechCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header (speech): ' + speechCall.headers['authorization']); process.exit(36); }`,
+      `if (speechCall.body?.model !== 'Kokoro') { console.error('bad speech model in body: ' + JSON.stringify(speechCall.body)); process.exit(37); }`,
+      `if (speechCall.body?.input !== 'Hello from deAPI.') { console.error('bad speech input in body: ' + JSON.stringify(speechCall.body)); process.exit(38); }`,
+      `if (speechCall.body?.voice !== 'alloy') { console.error('bad speech voice in body: ' + JSON.stringify(speechCall.body)); process.exit(39); }`,
+      ``,
+      `// --- transcribe() ---`,
+      `const transcribeRes = await transcribe({ model: provider.transcription('WhisperLargeV3'), audio: new Uint8Array([1, 2, 3, 4]) });`,
+      `if (transcribeRes.text !== 'hello from deapi') { console.error('bad transcription text: ' + JSON.stringify(transcribeRes.text)); process.exit(40); }`,
+      `const transcribeCall = calls.find((c) => c.url.endsWith('/audio/transcriptions'));`,
+      `if (!transcribeCall) { console.error('no /audio/transcriptions request captured'); process.exit(41); }`,
+      `if (transcribeCall.url !== 'https://oai.deapi.ai/v1/audio/transcriptions') { console.error('bad transcription URL: ' + transcribeCall.url); process.exit(42); }`,
+      `if (transcribeCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header (transcription): ' + transcribeCall.headers['authorization']); process.exit(43); }`,
+      `if (!transcribeCall.formData) { console.error('transcription body was not FormData'); process.exit(44); }`,
+      `if (transcribeCall.formData.get('model') !== 'WhisperLargeV3') { console.error('bad transcription model field: ' + transcribeCall.formData.get('model')); process.exit(45); }`,
+      `if (!transcribeCall.formData.get('file')) { console.error('transcription FormData missing file field'); process.exit(46); }`,
       ``,
       `console.log('MOCK-OK');`,
     ].join('\n'),

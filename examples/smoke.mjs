@@ -1,13 +1,20 @@
-// Live smoke test for @deapi/ai-sdk-provider (image + embeddings).
+// Live smoke test for @deapi/ai-sdk-provider (image + embeddings + speech +
+// transcription).
 // Reads DEAPI_API_KEY from the environment — never hardcode the key.
 // Run: DEAPI_API_KEY=dpn-sk-... node examples/smoke.mjs
 //
-// Section 7 (0.1.0 gate): preflight GET /v1/models, embedding, image generation,
-// and the image-editing guard. Writes a machine-readable result to
-// live-smoke-result.json and exits non-zero if any check fails.
+// 0.2.0 gate: preflight GET /v1/models, embedding, image generation, the
+// image-editing guard, speech synthesis, and transcription. Writes a
+// machine-readable result to live-smoke-result.json and exits non-zero if any
+// check fails.
 import { writeFileSync } from 'node:fs';
 import { deapi } from '../dist/index.mjs';
-import { embed, generateImage } from 'ai';
+import {
+  embed,
+  generateImage,
+  experimental_generateSpeech as generateSpeech,
+  experimental_transcribe as transcribe,
+} from 'ai';
 import { UnsupportedFunctionalityError } from '@ai-sdk/provider';
 
 // The OpenAI-compatible default base URL (matches the provider default). Kept
@@ -88,6 +95,43 @@ try {
 } catch (e) {
   ok('files/mask -> UnsupportedFunctionalityError',
     UnsupportedFunctionalityError.isInstance(e), `${e?.name}: ${e?.message}`);
+}
+
+// --- speech (Kokoro, voice alloy) ---
+// Synchronous OpenAI-shaped POST /audio/speech returning binary mp3 audio.
+// We keep the produced bytes to round-trip through transcription below.
+console.log('\n--- speech (Kokoro, voice alloy) ---');
+let speechAudio;
+try {
+  const { audio } = await generateSpeech({
+    model: deapi.speech('Kokoro'),
+    text: 'The quick brown fox jumps over the lazy dog.',
+    voice: 'alloy',
+  });
+  speechAudio = audio?.uint8Array;
+  const bytes = speechAudio?.length ?? 0;
+  ok('generateSpeech returns audio bytes', bytes > 0, `audio=${bytes}B`);
+} catch (e) {
+  ok('generateSpeech returns audio bytes', false, `threw: ${e?.name}: ${e?.message}`);
+}
+
+// --- transcription (WhisperLargeV3) ---
+// Multipart POST /audio/transcriptions with the `file` field, returning { text }.
+// Reuses the mp3 produced by the speech step so the smoke is fully self-contained.
+console.log('\n--- transcription (WhisperLargeV3) ---');
+try {
+  if (!speechAudio || speechAudio.length === 0) {
+    ok('transcribe returns non-empty text', false, 'no audio from speech step to transcribe');
+  } else {
+    const { text } = await transcribe({
+      model: deapi.transcription('WhisperLargeV3'),
+      audio: speechAudio, // mp3 bytes; the AI SDK detects audio/mpeg
+    });
+    const trimmed = (text ?? '').trim();
+    ok('transcribe returns non-empty text', trimmed.length > 0, `text="${trimmed}"`);
+  }
+} catch (e) {
+  ok('transcribe returns non-empty text', false, `threw: ${e?.name}: ${e?.message}`);
 }
 
 const passed = results.every((r) => r.pass);
