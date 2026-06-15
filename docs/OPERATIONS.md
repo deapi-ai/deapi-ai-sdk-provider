@@ -6,14 +6,12 @@ how to respond to incidents, and the policies that govern published versions.
 
 ## Ownership
 
-- **Owner team:** `@deapi-ai/maintainers` (the GitHub team referenced by `.github/CODEOWNERS`).
-  This team must exist in the `deapi-ai` org with write access to the repo, or CODEOWNERS is
-  silently ignored by GitHub.
-- **Primary owner:** a named individual member of `@deapi-ai/maintainers` who owns releases and
-  incident response.
-- **Backup owner:** a **second** named individual must be designated as backup owner so releases and
-  security response are not blocked by a single person being unavailable. **Action required:** a
-  backup owner is not yet designated — assign one and record both names here.
+- **Owner team:** `@deapi-ai/deapi-core-team` (the GitHub team referenced by `.github/CODEOWNERS`).
+  Ownership is team-based: this team must have write access to the repo, or CODEOWNERS is silently
+  ignored by GitHub.
+- **Releases & incident response** are owned collectively by the members of
+  `@deapi-ai/deapi-core-team`. To avoid a single point of failure, the team must have **at least two
+  members** so releases and security response are never blocked by one person being unavailable.
 - **Security contact:** GitHub Private Security Advisory (preferred) or `security@deapi.ai`
   (see `SECURITY.md`).
 
