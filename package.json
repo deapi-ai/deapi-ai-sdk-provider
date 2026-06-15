@@ -1,8 +1,25 @@
 {
   "name": "@deapi/ai-sdk-provider",
   "version": "0.1.0",
-  "description": "Vercel AI SDK provider for deAPI (image generation + embeddings).",
+  "description": "Vercel AI SDK provider for deAPI (image generation + embeddings) — OpenAI-compatible inference for open-source models.",
+  "keywords": [
+    "ai-sdk",
+    "vercel-ai",
+    "deapi",
+    "image-generation",
+    "embeddings",
+    "openai-compatible"
+  ],
+  "author": "deAPI",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deapi-ai/deapi-ai-sdk-provider.git"
+  },
+  "homepage": "https://github.com/deapi-ai/deapi-ai-sdk-provider#readme",
+  "bugs": {
+    "url": "https://github.com/deapi-ai/deapi-ai-sdk-provider/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -33,7 +50,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test:coverage && npm run build && node scripts/consumer-smoke.mjs"
   },
   "publishConfig": {
     "access": "public",

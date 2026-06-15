@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: deAPI documentation
+    url: https://docs.deapi.ai
+    about: Questions about the deAPI platform, models, quotas, or billing. (PLACEHOLDER — confirm the real docs URL before publish.)
+  - name: deAPI Discord
+    url: https://discord.gg/deapi
+    about: Community chat and platform support. (PLACEHOLDER — replace with the real Discord invite before publish.)
+  - name: Vercel AI SDK documentation
+    url: https://ai-sdk.dev
+    about: General AI SDK usage not specific to the deAPI provider.
+  - name: Report a security vulnerability
+    url: https://github.com/deapi-ai/deapi-ai-sdk-provider/security/advisories/new
+    about: Please report security issues privately. See SECURITY.md.
