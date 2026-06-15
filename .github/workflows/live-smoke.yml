@@ -43,7 +43,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run live smoke (image + embeddings)
+      - name: Run live smoke (preflight + image + embeddings + guard)
         env:
           DEAPI_API_KEY: ${{ secrets.DEAPI_API_KEY }}
         run: node examples/smoke.mjs
+
+      - name: Upload live smoke result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: live-smoke-result
+          path: live-smoke-result.json
+          if-no-files-found: warn
