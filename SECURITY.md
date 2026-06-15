@@ -28,7 +28,6 @@ Please report privately through one of the following channels:
    [Security tab](https://github.com/deapi-ai/deapi-ai-sdk-provider/security/advisories/new)
    of this repository.
 2. **Email:** `security@deapi.ai`
-   <!-- PLACEHOLDER: confirm or replace with the real monitored security contact before publish. -->
 
 Please include, where possible:
 
