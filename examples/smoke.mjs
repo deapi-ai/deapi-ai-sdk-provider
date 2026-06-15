@@ -1,22 +1,57 @@
 // Live smoke test for @deapi/ai-sdk-provider (image + embeddings).
 // Reads DEAPI_API_KEY from the environment — never hardcode the key.
 // Run: DEAPI_API_KEY=dpn-sk-... node examples/smoke.mjs
+//
+// Section 7 (0.1.0 gate): preflight GET /v1/models, embedding, image generation,
+// and the image-editing guard. Writes a machine-readable result to
+// live-smoke-result.json and exits non-zero if any check fails.
+import { writeFileSync } from 'node:fs';
 import { deapi } from '../dist/index.mjs';
 import { embed, generateImage } from 'ai';
 import { UnsupportedFunctionalityError } from '@ai-sdk/provider';
 
+// The OpenAI-compatible default base URL (matches the provider default). Kept
+// local to this example so the package's public barrel stays minimal.
+const DEAPI_DEFAULT_BASE_URL = 'https://oai.deapi.ai/v1';
+
+const results = [];
 function ok(label, cond, extra = '') {
   console.log(`${cond ? '✅' : '❌'} ${label}${extra ? ' — ' + extra : ''}`);
+  results.push({ check: label, pass: Boolean(cond), detail: extra });
   if (!cond) process.exitCode = 1;
 }
 
-console.log('--- embedding (Bge_M3_FP16) ---');
-const { embedding } = await embed({
-  model: deapi.embedding('Bge_M3_FP16'),
-  value: 'sunny day at the beach',
-});
-ok('embed returns 1024-dim vector', Array.isArray(embedding) && embedding.length === 1024,
-  `dims=${embedding?.length}`);
+const apiKey = process.env.DEAPI_API_KEY;
+if (!apiKey) {
+  console.error('DEAPI_API_KEY is not set — cannot run live smoke.');
+  process.exit(1);
+}
+
+// --- Preflight: GET /v1/models (auth + service reachable) ---
+console.log('--- preflight: GET /v1/models ---');
+try {
+  const res = await fetch(`${DEAPI_DEFAULT_BASE_URL}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  const body = res.ok ? await res.json() : null;
+  const models = Array.isArray(body?.data) ? body.data.length : 0;
+  ok('GET /v1/models returns 200 with models', res.ok && models > 0,
+    `HTTP ${res.status}, models=${models}`);
+} catch (e) {
+  ok('GET /v1/models returns 200 with models', false, `threw: ${e?.name}: ${e?.message}`);
+}
+
+console.log('\n--- embedding (Bge_M3_FP16) ---');
+try {
+  const { embedding } = await embed({
+    model: deapi.embedding('Bge_M3_FP16'),
+    value: 'sunny day at the beach',
+  });
+  ok('embed returns 1024-dim vector', Array.isArray(embedding) && embedding.length === 1024,
+    `dims=${embedding?.length}`);
+} catch (e) {
+  ok('embed returns 1024-dim vector', false, `threw: ${e?.name}: ${e?.message}`);
+}
 
 console.log('\n--- image (Flux1schnell, 512x512) ---');
 try {
@@ -32,13 +67,12 @@ try {
     `uint8Array=${bytes}B base64=${b64len}chars`);
   console.log('   warnings:', JSON.stringify(res.warnings ?? []));
 } catch (e) {
-  ok('generateImage', false, `threw: ${e?.name}: ${e?.message}`);
+  ok('generateImage returns image bytes', false, `threw: ${e?.name}: ${e?.message}`);
 }
 
-// Image-editing guard (Audit Sec-4). This throws synchronously BEFORE any
-// network call — passing `files`/`mask` to an image model must be rejected with
-// UnsupportedFunctionalityError in 0.1.0. No live request is made (or meaningful)
-// here; this satisfies the section 7 gate text network-free.
+// Image-editing guard (Audit Sec-4). Throws synchronously BEFORE any network
+// call — passing `files`/`mask` must be rejected with UnsupportedFunctionalityError
+// in 0.1.0. Network-free; satisfies the section 7 gate text.
 console.log('\n--- image-editing guard (files/mask rejected) ---');
 try {
   deapi.image('Flux1schnell').doGenerate({
@@ -55,4 +89,12 @@ try {
   ok('files/mask -> UnsupportedFunctionalityError',
     UnsupportedFunctionalityError.isInstance(e), `${e?.name}: ${e?.message}`);
 }
-console.log('\ndone.');
+
+const passed = results.every((r) => r.pass);
+const summary = {
+  ok: passed,
+  baseURL: DEAPI_DEFAULT_BASE_URL,
+  checks: results,
+};
+writeFileSync('live-smoke-result.json', JSON.stringify(summary, null, 2));
+console.log(`\n${passed ? '✅ all checks passed' : '❌ some checks failed'} — wrote live-smoke-result.json`);

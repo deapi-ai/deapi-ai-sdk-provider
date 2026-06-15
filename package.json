@@ -51,7 +51,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm run test:coverage && npm run build && node scripts/consumer-smoke.mjs"
+    "pack:audit": "node scripts/pack-audit.mjs",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test:coverage && npm run build && npm run pack:audit && node scripts/consumer-smoke.mjs"
   },
   "publishConfig": {
     "access": "public",
