@@ -4,10 +4,9 @@
 # requested for review when someone opens a PR that modifies matching files.
 # See: https://docs.github.com/articles/about-code-owners
 #
-# PLACEHOLDER: `@deapi-ai/maintainers` is a placeholder owner and must be
-# replaced with a real GitHub user or team that exists and has write access to
-# this repository before CODEOWNERS will function. Until then, GitHub silently
-# ignores unknown owners and no review will be requested.
+# NOTE: the `@deapi-ai/maintainers` team must exist in the deapi-ai org with
+# write access to this repo for CODEOWNERS to take effect (GitHub silently
+# ignores unknown owners). Adjust the team slug here if it differs.
 
 # Default owner for everything in the repo.
 * @deapi-ai/maintainers
