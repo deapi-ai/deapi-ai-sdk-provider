@@ -12,9 +12,3 @@ export type {
   DeAPIImageModelId,
   DeAPIProviderSettings,
 } from './deapi-config';
-
-export {
-  deapiErrorDataSchema,
-  failedResponseHandler,
-} from './deapi-error';
-export type { DeAPIErrorData } from './deapi-error';

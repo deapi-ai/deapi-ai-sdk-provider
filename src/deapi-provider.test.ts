@@ -1,4 +1,8 @@
-import { NoSuchModelError } from '@ai-sdk/provider';
+import {
+  NoSuchModelError,
+  UnsupportedFunctionalityError,
+  type ImageModelV3CallOptions,
+} from '@ai-sdk/provider';
 import { embed, generateImage } from 'ai';
 import {
   afterEach,
@@ -411,5 +415,136 @@ describe('error envelopes surfaced through real ai-sdk calls', () => {
       thrown = e;
     }
     expect((thrown as { statusCode?: number }).statusCode).toBe(500);
+  });
+});
+
+describe('image-editing guard (Sec-4)', () => {
+  /** A minimal, valid ImageModelV3CallOptions with no files/mask. */
+  function baseImageOptions(): ImageModelV3CallOptions {
+    return {
+      prompt: 'a red cube',
+      n: 1,
+      size: undefined,
+      aspectRatio: undefined,
+      seed: undefined,
+      files: undefined,
+      mask: undefined,
+      providerOptions: {},
+    };
+  }
+
+  it('preserves the underlying ImageModelV3 surface (spec/provider/modelId)', () => {
+    const model = createDeAPI({ apiKey: 'dpn-sk-x' }).image('Flux1schnell');
+    expect(model.specificationVersion).toBe('v3');
+    expect(model.provider).toBe('deapi.image');
+    expect(model.modelId).toBe('Flux1schnell');
+    // maxImagesPerCall is forwarded from the underlying model (a value, not the
+    // guard wrapper inventing one).
+    expect('maxImagesPerCall' in model).toBe(true);
+  });
+
+  it('throws UnsupportedFunctionalityError when files are supplied', async () => {
+    const fetchMock = jsonFetch(200, IMAGE_OK);
+    const model = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock }).image(
+      'Flux1schnell',
+    );
+    let thrown: unknown;
+    try {
+      await model.doGenerate({
+        ...baseImageOptions(),
+        files: [{ type: 'file', data: 'aGk=', mediaType: 'image/png' }],
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(UnsupportedFunctionalityError.isInstance(thrown)).toBe(true);
+    expect((thrown as UnsupportedFunctionalityError).functionality).toBe(
+      'image editing (files/mask)',
+    );
+    // The guard fails BEFORE touching the network.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('throws UnsupportedFunctionalityError when a mask is supplied', async () => {
+    const fetchMock = jsonFetch(200, IMAGE_OK);
+    const model = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock }).image(
+      'Flux1schnell',
+    );
+    let thrown: unknown;
+    try {
+      await model.doGenerate({
+        ...baseImageOptions(),
+        mask: { type: 'file', data: 'aGk=', mediaType: 'image/png' },
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(UnsupportedFunctionalityError.isInstance(thrown)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT throw on an empty files array (delegates to generation)', async () => {
+    const fetchMock = jsonFetch(200, IMAGE_OK);
+    const model = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock }).image(
+      'Flux1schnell',
+    );
+    const result = await model.doGenerate({
+      ...baseImageOptions(),
+      files: [],
+    });
+    expect(result.images.length).toBe(1);
+    const { url } = lastRequest(fetchMock);
+    expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/images/generations`);
+  });
+
+  it('normal generation still delegates to the underlying model (no guard)', async () => {
+    const fetchMock = jsonFetch(200, IMAGE_OK);
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const result = await generateImage({
+      model: deapi.image('Flux1schnell'),
+      prompt: 'a blue sphere',
+    });
+    expect(result.image.base64).toBe('aGVsbG8=');
+    expect(lastRequest(fetchMock).url).toBe(
+      `${DEAPI_DEFAULT_BASE_URL}/images/generations`,
+    );
+  });
+});
+
+describe('custom fetch sets redirect:manual (Sec-5)', () => {
+  it('passes redirect:"manual" through to the underlying fetch', async () => {
+    let capturedRedirect: RequestInit['redirect'];
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      capturedRedirect = init?.redirect;
+      return new Response(JSON.stringify(EMBEDDING_OK), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    await embed({ model: deapi.embedding('Bge_M3_FP16'), value: 'hi' });
+    expect(capturedRedirect).toBe('manual');
+  });
+
+  it('a 307 is NOT followed (surfaces as a non-2xx, Bearer not replayed)', async () => {
+    // With redirect:'manual' the underlying fetch returns the 3xx directly
+    // instead of following it to another origin with the Authorization header.
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      expect(init?.redirect).toBe('manual');
+      return new Response('', {
+        status: 307,
+        headers: { location: 'https://evil.example/v1/embeddings' },
+      });
+    });
+    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    await expect(
+      embed({
+        model: deapi.embedding('Bge_M3_FP16'),
+        value: 'hi',
+        maxRetries: 0,
+      }),
+    ).rejects.toThrow();
+    // Only the single original call was made; the redirect target was never hit.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

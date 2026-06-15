@@ -1,9 +1,11 @@
 import {
   type EmbeddingModelV3,
   type ImageModelV3,
+  type ImageModelV3CallOptions,
   type LanguageModelV3,
   NoSuchModelError,
   type ProviderV3,
+  UnsupportedFunctionalityError,
 } from '@ai-sdk/provider';
 import {
   type FetchFunction,
@@ -83,6 +85,33 @@ const deapiErrorStructure: ProviderErrorStructure<DeAPIErrorData> = {
 };
 
 /**
+ * Wraps an {@link ImageModelV3} to GUARD against image editing.
+ *
+ * `@ai-sdk/openai-compatible` routes a `doGenerate` call to `POST /images/edits`
+ * whenever `files` or a `mask` is supplied. deAPI's OpenAI surface returns 400
+ * for that path (inpainting/editing is unsupported and untested in 0.1.0), so we
+ * fail fast with a typed `UnsupportedFunctionalityError` instead of leaking a
+ * confusing upstream 400. All other members are forwarded 1:1 so the wrapper
+ * remains a thin, fully-compliant `ImageModelV3`.
+ */
+function guardImageEditing(model: ImageModelV3): ImageModelV3 {
+  return {
+    specificationVersion: model.specificationVersion,
+    provider: model.provider,
+    modelId: model.modelId,
+    maxImagesPerCall: model.maxImagesPerCall,
+    doGenerate(options: ImageModelV3CallOptions) {
+      if (options.files?.length || options.mask) {
+        throw new UnsupportedFunctionalityError({
+          functionality: 'image editing (files/mask)',
+        });
+      }
+      return model.doGenerate(options);
+    },
+  };
+}
+
+/**
  * Builds a fetch wrapper that injects lazy auth headers at REQUEST time.
  *
  * AUTH MECHANISM (lazy auth, P0.6):
@@ -157,13 +186,15 @@ export function createDeAPI(
     });
 
   const imageModel = (modelId: DeAPIImageModelId): ImageModelV3 =>
-    new OpenAICompatibleImageModel(modelId, {
-      provider: 'deapi.image',
-      url,
-      headers,
-      fetch,
-      errorStructure: deapiErrorStructure,
-    });
+    guardImageEditing(
+      new OpenAICompatibleImageModel(modelId, {
+        provider: 'deapi.image',
+        url,
+        headers,
+        fetch,
+        errorStructure: deapiErrorStructure,
+      }),
+    );
 
   const languageModel = (modelId: string): LanguageModelV3 => {
     throw new NoSuchModelError({ modelId, modelType: 'languageModel' });

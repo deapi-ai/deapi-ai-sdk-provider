@@ -36,8 +36,15 @@ Zainstalowane wersje stabilne (npm `latest`, 2026-06-12):
 
 ## 1. Architektura (SOLID + KISS) + runtime target
 
-**Zasada nadrzędna:** image + embeddings delegują 1:1 do `createOpenAICompatible` (zero custom kodu).
+**Zasada nadrzędna:** image + embeddings są realizowane przez modele OpenAI-compatible (zero custom request mappingu).
 Custom klasy WYŁĄCZNIE dla speech + transcription. To realizuje KISS.
+
+> **Świadomy wyjątek (Audit Simplify-2):** image + embeddings konstruują klasy
+> `OpenAICompatibleImageModel` / `OpenAICompatibleEmbeddingModel` **bezpośrednio** (nie przez fabrykę
+> `createOpenAICompatible`). Powód: fabryka nie pozwala wstrzyknąć leniwego (per-request) auth fetch
+> ani własnej `errorStructure` deAPI. Bezpośrednia konstrukcja jest bardziej jawna, testowalna i
+> umożliwia lazy auth + mapowanie błędów deAPI. Brzmienie „delegacja 1:1 do `createOpenAICompatible`"
+> z wcześniejszych wersji planu jest tym samym zastąpione.
 
 - **SRP** — jeden plik = jedna odpowiedzialność.
 - **DIP** — custom modele zależą od abstrakcji transportu (`postJsonToApi`/`postFormDataToApi`), nie od gołego `fetch`; `fetch` wstrzykiwalny.
@@ -83,15 +90,16 @@ Pliki repo (governance — sekcja 9): `.github/workflows/{ci,release,live-smoke}
    - native/v2: `{ data: null, message, errors?, statusCode? }`
    - `deAPIErrorSchema = z.union([...])`; `createJsonErrorResponseHandler({ errorSchema, errorToMessage })`. Zachować status + wszystkie response headers + surowe body (z limitem). `Retry-After` tylko przepuszczany, **nie** wymagany ani testowany jako gwarantowany (P0.3). Brak agresywnego retry.
 4. **`deapi-provider.ts`** — `createDeAPI()`:
-   - `imageModel(id)`/`embeddingModel(id)` → `createOpenAICompatible({ name:'deapi', baseURL, headers: resolveHeaders, fetch })` — **lazy `headers`, NIE eager `apiKey`** (P0.6).
+   - `imageModel(id)`/`embeddingModel(id)` → konstrukcja `OpenAICompatibleImageModel` / `OpenAICompatibleEmbeddingModel` **bezpośrednio** (nie przez `createOpenAICompatible`), z wstrzykniętym leniwym auth `fetch` (rozwiązuje klucz per-request) + własną `errorStructure` deAPI — **lazy `headers`/auth, NIE eager `apiKey`** (P0.6). Patrz świadomy wyjątek w sekcji 1 (Audit Simplify-2).
    - `speechModel(id)`/`transcriptionModel(id)` → custom klasy (Faza P2).
    - aliasy `image`/`embedding`/`speech`/`transcription`.
    - `languageModel(id)` → `throw new NoSuchModelError(...)`. Bez callable, bez `videoModel`.
    - `export const deapi = createDeAPI()` — bezpieczne dzięki lazy auth.
 5. Testy P0: factory, `specificationVersion==='v3'`, `NoSuchModelError`, **import bez env nie rzuca**, request bez env rzuca dopiero przy wywołaniu, jawny `apiKey` nadpisuje env, custom `headers`/`fetch`, per-call headers, `abortSignal`, baseURL join (z/bez trailing slash), guard `/api/v2`, oba envelope'y błędów.
 
-### Faza P1 — image + embeddings (delegacja, niskie ryzyko)
-- Inline delegacja w `deapi-provider.ts`. Testy: `generateImage({ model: deapi.image('Flux1schnell') })` → URL `oai.deapi.ai/v1/images/generations` + body; `embed({ model: deapi.embedding('Bge_M3_FP16') })` → 1024-dim. + live smoke obu.
+### Faza P1 — image + embeddings (bezpośrednie klasy OpenAI-compatible, niskie ryzyko)
+- Konstrukcja `OpenAICompatibleImageModel` / `OpenAICompatibleEmbeddingModel` bezpośrednio w `deapi-provider.ts` (lazy auth fetch + custom `errorStructure`; Audit Simplify-2). Testy: `generateImage({ model: deapi.image('Flux1schnell') })` → URL `oai.deapi.ai/v1/images/generations` + body; `embed({ model: deapi.embedding('Bge_M3_FP16') })` → 1024-dim. + live smoke obu.
+- **Image editing guard (Audit Sec-4):** `OpenAICompatibleImageModel` routuje na `POST /images/edits`, gdy wywołanie zawiera `files`/`mask`. deAPI zwraca tu 400. W `0.1.0` ta ścieżka jest nieobsługiwana — provider odrzuca `files`/`mask` z `UnsupportedFunctionalityError`. Edits są planowane na `0.2.0` (wymagają live smoke).
 
 ### Faza P2 — speech + transcription (custom; główne ryzyko)
 > **GATE P0.1 — audio live spike PRZED pisaniem klas.** Realnym kluczem potwierdzić:
@@ -196,8 +204,29 @@ Estymacja: image+embeddings 2–3 dni, speech+transcription 2–4 dni, packaging
 - PR do Vercel bez opublikowanej paczki; live smoke w default CI; publish z laptopa.
 - Obietnice w docs/README bez testu lub live smoke.
 
-## 7. Finalny gate przed `npm publish`
-clean `npm ci` → typecheck → lint → unit/contract → coverage threshold → build → `npm pack --json` allowlist → tarball consumer smoke (ESM import + CJS require + typy + import bez env + mock request) → manual live smoke workflow (preflight `GET /v1/models` + 4 modalności) → README snippet typecheck → metadata license/repository → SECURITY/SUPPORT → trusted publishing ready → **jawna zgoda użytkownika (outward-facing)**.
+## 7. Finalny gate przed `npm publish` (SCOPE-AWARE — Audit Blocker-1)
+
+Gate jest **świadomie zależny od zakresu wersji**. Live smoke pokrywa **tylko modalności faktycznie
+wystawione w danej wersji**, nie wszystkie cztery. Speech/transcription nie należą do gate'u `0.1.0`.
+
+**Wspólne kroki (każda wersja):**
+clean `npm ci` → typecheck → lint → unit/contract → coverage threshold → build → `npm pack --json`
+allowlist → tarball consumer smoke (ESM import + CJS require + typy + import bez env + mock request) →
+README snippet typecheck → metadata license/repository → SECURITY/SUPPORT → trusted publishing ready →
+**jawna zgoda użytkownika (outward-facing)**.
+
+**Live smoke — zależnie od zakresu:**
+
+- **`0.1.0` (image + embeddings ONLY):** manual live smoke workflow → preflight `GET /v1/models` +
+  **image** (`generateImage`) + **embeddings** (`embed`). **NIE** wymaga speech/transcription —
+  te modalności nie są w tej wersji wystawione. Dodatkowo: potwierdzić guard image editing
+  (`files`/`mask` → `UnsupportedFunctionalityError`, Audit Sec-4).
+- **`0.2.0` (speech + transcription):** po osobnym audio spike (GATE P0.1) manual live smoke rozszerzony
+  o **speech** (`POST /v1/audio/speech`) + **transcription** (`POST /v1/audio/transcriptions`),
+  obok już istniejących image + embeddings.
+
+> Zasada: każda modalność opisana jako wspierana w README danej wersji MUSI przejść live smoke tej
+> wersji; modalności odłożone do przyszłej wersji NIE blokują bieżącego gate'u.
 
 ## 8. Finalny gate przed docs PR
 paczka publiczna na npm → publiczne repo + README zgodny z paczką → tagged release → live smoke każdej opisanej modalności → recheck ordinala → lokalny docs build `vercel/ai` → link check → claims audit.
