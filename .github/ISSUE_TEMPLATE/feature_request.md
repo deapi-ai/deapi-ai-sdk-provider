@@ -21,12 +21,13 @@ Describe the behavior or API you'd like to see.
 
 ## Scope
 
-This package targets image generation and embeddings in `0.1.x`. Note where your
-request fits:
+This package targets image generation, embeddings, speech, and transcription.
+Note where your request fits:
 
 - [ ] Image generation
 - [ ] Embeddings
-- [ ] Speech / transcription (planned for `0.2.0`)
+- [ ] Speech (text-to-speech)
+- [ ] Transcription (speech-to-text)
 - [ ] Other (please explain)
 
 > Note: deAPI is a non-LLM provider. Chat/completion/tool-calling/structured-output

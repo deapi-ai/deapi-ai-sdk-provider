@@ -10,12 +10,12 @@ latest published minor release line.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
-| < 0.1.0 | :x:                |
+| 0.2.x   | :white_check_mark: |
+| < 0.2.0 | :x:                |
 
-Scope of `0.1.x`: **image generation and embeddings only.** Speech and transcription
-are not part of this release line; they are planned for `0.2.0`. Reports about those
-modalities are out of scope until they ship.
+Scope: **image generation, embeddings, speech (text-to-speech), and transcription
+(speech-to-text).** LLM/chat/tool-calling, image editing (inpainting), and
+video-via-AI-SDK are out of scope.
 
 ## Reporting a Vulnerability
 

@@ -23,11 +23,14 @@ This repository supports the `@deapi/ai-sdk-provider` package itself:
 - Provider setup: `createDeAPI()`, the default `deapi` instance, configuration, and auth.
 - **Image generation** (`deapi.image(...)` with `generateImage` from `ai`).
 - **Embeddings** (`deapi.embedding(...)` with `embed` from `ai`).
+- **Speech / text-to-speech** (`deapi.speech(...)` with `experimental_generateSpeech` from `ai`).
+- **Transcription / speech-to-text** (`deapi.transcription(...)` with `experimental_transcribe` from `ai`).
 - Error handling, types, and packaging (ESM/CJS, type defs).
 
 ## Out of Scope
 
-- **Speech and transcription.** Not part of the `0.1.x` release line; planned for `0.2.0`.
+- **Image editing (inpainting).** Only image generation is supported; passing `files`/`mask`
+  throws `UnsupportedFunctionalityError`.
 - **Video.** deAPI video is a native REST capability and has no AI SDK interface in this
   provider.
 - **LLM / chat / completion / tool-calling / structured output.** deAPI is a non-LLM

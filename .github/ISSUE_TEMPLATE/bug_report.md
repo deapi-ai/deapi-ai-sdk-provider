@@ -14,10 +14,11 @@ For security vulnerabilities, follow SECURITY.md instead of opening an issue.
 
 ## Scope check
 
-This release line (`0.1.x`) covers **image generation and embeddings only**.
-Speech/transcription (planned for `0.2.0`), video, and LLM/chat features are out of scope.
+This provider covers **image generation, embeddings, speech (text-to-speech), and
+transcription (speech-to-text)**. LLM/chat/tool-calling, image editing (inpainting),
+and video are out of scope.
 
-- [ ] My issue is about image generation or embeddings.
+- [ ] My issue is about image generation, embeddings, speech, or transcription.
 
 ## Describe the bug
 
