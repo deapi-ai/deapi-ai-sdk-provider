@@ -149,7 +149,19 @@ jobs:
         # Pin an EXPLICIT version (never @latest) for a reproducible toolchain.
         run: npm install -g npm@11.6.2
 
+      - name: Skip publish if this version is already on npm (idempotent)
+        id: already
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "@deapi/ai-sdk-provider@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${PKG_VERSION} already on npm — skipping publish (e.g. manual bootstrap release)."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish (provenance, trusted publishing via OIDC)
+        if: steps.already.outputs.already != 'true'
         # No NODE_AUTH_TOKEN: npm uses the OIDC id-token for trusted publishing.
         # publishConfig in package.json sets access=public and provenance=true.
         run: npm publish --provenance --access public
