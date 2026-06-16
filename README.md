@@ -3,7 +3,7 @@
 OpenAI-compatible inference for open-source models — a community [Vercel AI SDK](https://ai-sdk.dev) provider for [deAPI](https://deapi.ai). This `0.2.0` release covers **image generation**, **embeddings**, **speech** (text-to-speech), and **transcription** (speech-to-text).
 
 [![npm version](https://img.shields.io/npm/v/@deapi/ai-sdk-provider.svg)](https://www.npmjs.com/package/@deapi/ai-sdk-provider)
-[![license](https://img.shields.io/npm/l/@deapi/ai-sdk-provider.svg)](./LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Installation
 
