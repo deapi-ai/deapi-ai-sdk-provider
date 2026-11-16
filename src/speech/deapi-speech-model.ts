@@ -1,7 +1,7 @@
 import type {
   APICallError,
-  SpeechModelV3,
-  SpeechModelV3CallOptions,
+  SpeechModelV4,
+  SpeechModelV4CallOptions,
 } from '@ai-sdk/provider';
 import {
   combineHeaders,
@@ -43,12 +43,12 @@ export interface DeAPISpeechModelConfig {
 }
 
 /**
- * deAPI speech model — a {@link SpeechModelV3} backed by the synchronous,
+ * deAPI speech model — a {@link SpeechModelV4} backed by the synchronous,
  * OpenAI-shaped `POST {baseURL}/audio/speech` endpoint, which returns binary
  * audio directly (not an async job).
  */
-export class DeAPISpeechModel implements SpeechModelV3 {
-  readonly specificationVersion = 'v3' as const;
+export class DeAPISpeechModel implements SpeechModelV4 {
+  readonly specificationVersion = 'v4' as const;
   readonly provider = PROVIDER;
   readonly modelId: string;
 
@@ -60,8 +60,8 @@ export class DeAPISpeechModel implements SpeechModelV3 {
   }
 
   async doGenerate(
-    options: SpeechModelV3CallOptions,
-  ): Promise<Awaited<ReturnType<SpeechModelV3['doGenerate']>>> {
+    options: SpeechModelV4CallOptions,
+  ): Promise<Awaited<ReturnType<SpeechModelV4['doGenerate']>>> {
     const currentDate = new Date();
 
     const providerOptions: DeAPISpeechProviderOptions | undefined =

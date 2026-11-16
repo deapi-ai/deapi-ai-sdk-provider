@@ -28,6 +28,14 @@ describe('deapiTranscriptionProviderOptionsSchema', () => {
     expect(parsed).toEqual({ response_format: 'json' });
   });
 
+  it('accepts response_format verbose_json', () => {
+    expect(
+      deapiTranscriptionProviderOptionsSchema.parse({
+        response_format: 'verbose_json',
+      }),
+    ).toEqual({ response_format: 'verbose_json' });
+  });
+
   it('rejects an unsupported response_format', () => {
     expect(() =>
       deapiTranscriptionProviderOptionsSchema.parse({
@@ -43,8 +51,44 @@ describe('getTranscriptionArgs', () => {
     expect(args).toEqual({
       response_format: 'json',
       language: undefined,
+      timestampGranularities: [],
       warnings: [],
     });
+  });
+
+  it('switches to verbose_json and forwards granularities when timestamps are requested', async () => {
+    const args = await getTranscriptionArgs({
+      ...baseCall,
+      timestampGranularities: ['segment', 'word', 'word'],
+    });
+    expect(args.response_format).toBe('verbose_json');
+    expect(args.timestampGranularities).toEqual(['segment', 'word']);
+    expect(args.warnings).toEqual([]);
+  });
+
+  it('honours an explicit verbose_json without timestamp granularities', async () => {
+    const args = await getTranscriptionArgs({
+      ...baseCall,
+      providerOptions: { deapi: { response_format: 'verbose_json' } },
+    });
+    expect(args.response_format).toBe('verbose_json');
+    expect(args.timestampGranularities).toEqual([]);
+  });
+
+  it('drops granularities with a warning when json is forced', async () => {
+    const args = await getTranscriptionArgs({
+      ...baseCall,
+      timestampGranularities: ['word'],
+      providerOptions: { deapi: { response_format: 'json' } },
+    });
+    expect(args.response_format).toBe('json');
+    expect(args.timestampGranularities).toEqual([]);
+    expect(args.warnings).toEqual([
+      expect.objectContaining({
+        type: 'unsupported',
+        feature: 'timestampGranularities',
+      }),
+    ]);
   });
 
   it('maps provider response_format and language', async () => {

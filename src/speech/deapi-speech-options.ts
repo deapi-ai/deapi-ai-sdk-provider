@@ -1,4 +1,4 @@
-import type { SharedV3Warning, SpeechModelV3CallOptions } from '@ai-sdk/provider';
+import type { SharedV4Warning, SpeechModelV4CallOptions } from '@ai-sdk/provider';
 import { z } from 'zod';
 
 /**
@@ -32,18 +32,16 @@ export type DeAPISpeechProviderOptions = z.infer<
   typeof deapiSpeechProviderOptionsSchema
 >;
 
-/**
- * Known deAPI speech model slug. The id type stays open (`string & {}`) so we
- * never hardcode a runtime model list — new models work without a code change
- * while still offering editor autocomplete for the common one. Mirrors the
- * model-id pattern in `deapi-config.ts`.
- */
-export type DeAPISpeechModelId = 'Kokoro' | (string & {});
+/** Known deAPI speech model slugs (defined once in `deapi-config.ts`). */
+export type { DeAPISpeechModelId } from '../deapi-config';
 
 /** Default voice used when the caller does not supply one. */
 export const DEFAULT_SPEECH_VOICE = 'alloy';
 
-/** Default audio container/format requested from the deAPI speech endpoint. */
+/**
+ * Default audio container/format requested from the deAPI speech endpoint.
+ * `mp3` is currently the only format the endpoint produces.
+ */
 export const DEFAULT_SPEECH_RESPONSE_FORMAT = 'mp3';
 
 /**
@@ -72,7 +70,7 @@ export interface DeAPISpeechRequestBody {
  */
 export interface MappedSpeechRequest {
   body: DeAPISpeechRequestBody;
-  warnings: SharedV3Warning[];
+  warnings: SharedV4Warning[];
 }
 
 /** Recognised keys under `providerOptions.deapi` for a speech call. */
@@ -83,7 +81,7 @@ const KNOWN_DEAPI_SPEECH_OPTION_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Maps {@link SpeechModelV3CallOptions} (plus already-parsed deAPI provider
+ * Maps {@link SpeechModelV4CallOptions} (plus already-parsed deAPI provider
  * options) onto the deAPI speech request body.
  *
  * Mapping rules:
@@ -101,11 +99,11 @@ const KNOWN_DEAPI_SPEECH_OPTION_KEYS: ReadonlySet<string> = new Set([
  * zod schema strips them, so they are otherwise invisible).
  */
 export function mapSpeechCallOptions(
-  options: SpeechModelV3CallOptions,
+  options: SpeechModelV4CallOptions,
   providerOptions: DeAPISpeechProviderOptions | undefined,
   rawProviderOptions?: Record<string, unknown>,
 ): MappedSpeechRequest {
-  const warnings: SharedV3Warning[] = [];
+  const warnings: SharedV4Warning[] = [];
 
   for (const key of Object.keys(rawProviderOptions ?? {})) {
     if (!KNOWN_DEAPI_SPEECH_OPTION_KEYS.has(key)) {

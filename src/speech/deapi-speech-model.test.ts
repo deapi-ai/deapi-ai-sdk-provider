@@ -62,9 +62,9 @@ describe('DeAPISpeechModel', () => {
     capture = {};
   });
 
-  it('exposes the V3 identity', () => {
+  it('exposes the V4 identity', () => {
     const model = new DeAPISpeechModel('Kokoro', makeConfig(binaryFetch(capture)));
-    expect(model.specificationVersion).toBe('v3');
+    expect(model.specificationVersion).toBe('v4');
     expect(model.provider).toBe('deapi.speech');
     expect(model.modelId).toBe('Kokoro');
   });

@@ -1,7 +1,8 @@
 name: Live smoke (manual)
 
 # WARNING: This workflow makes REAL calls to the deAPI API and INCURS REAL COST
-# (image generation + embeddings against oai.deapi.ai). It is intentionally
+# (embedding, image, speech, transcription and a 1-second video against
+# oai.deapi.ai, each kept as small as the API allows). It is intentionally
 # manual-only (workflow_dispatch) and is NOT part of the default CI pipeline.
 # Run it deliberately, sparingly, and only when you need live verification.
 
@@ -43,7 +44,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run live smoke (preflight + image + embeddings + guard)
+      - name: Run live smoke (preflight + embedding + image + speech + transcription + video + guard)
         env:
           DEAPI_API_KEY: ${{ secrets.DEAPI_API_KEY }}
         run: node examples/smoke.mjs

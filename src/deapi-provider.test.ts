@@ -1,13 +1,14 @@
 import {
   NoSuchModelError,
   UnsupportedFunctionalityError,
-  type ImageModelV3CallOptions,
+  type ImageModelV4CallOptions,
 } from '@ai-sdk/provider';
 import {
   embed,
+  experimental_generateVideo as generateVideo,
   generateImage,
-  experimental_generateSpeech as generateSpeech,
-  experimental_transcribe as transcribe,
+  generateSpeech,
+  transcribe,
 } from 'ai';
 import {
   afterEach,
@@ -19,7 +20,7 @@ import {
   type Mock,
 } from 'vitest';
 import { DEAPI_API_KEY_ENV_VAR, DEAPI_DEFAULT_BASE_URL } from './deapi-config';
-import { createDeAPI } from './deapi-provider';
+import { createAuthInjectingFetch, createDeAPI } from './deapi-provider';
 
 const ENV_KEY = DEAPI_API_KEY_ENV_VAR;
 const ORIGINAL = process.env[ENV_KEY];
@@ -76,7 +77,7 @@ afterEach(() => {
 
 describe('createDeAPI: provider shape', () => {
   it('returns an object exposing image, embedding, speech, transcription + canonical methods + languageModel', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     expect(typeof deapi.image).toBe('function');
     expect(typeof deapi.embedding).toBe('function');
     expect(typeof deapi.speech).toBe('function');
@@ -85,50 +86,61 @@ describe('createDeAPI: provider shape', () => {
     expect(typeof deapi.embeddingModel).toBe('function');
     expect(typeof deapi.speechModel).toBe('function');
     expect(typeof deapi.transcriptionModel).toBe('function');
+    expect(typeof deapi.video).toBe('function');
+    expect(typeof deapi.videoModel).toBe('function');
     expect(typeof deapi.languageModel).toBe('function');
   });
 
-  it('reports specificationVersion v3', () => {
-    expect(createDeAPI({ apiKey: 'dpn-sk-x' }).specificationVersion).toBe('v3');
+  it('video and videoModel are the same implementation and report v4', () => {
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
+    expect(deapi.video).toBe(deapi.videoModel);
+    const video = deapi.video('Ltxv_13B_0_9_8_Distilled_FP8');
+    expect(video.specificationVersion).toBe('v4');
+    expect(video.provider).toBe('deapi.video');
+    expect(video.modelId).toBe('Ltxv_13B_0_9_8_Distilled_FP8');
+  });
+
+  it('reports specificationVersion v4', () => {
+    expect(createDeAPI({ apiKey: 'sk-dp-x' }).specificationVersion).toBe('v4');
   });
 
   it('image and imageModel are the same implementation', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     expect(deapi.image).toBe(deapi.imageModel);
   });
 
   it('embedding and embeddingModel are the same implementation', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     expect(deapi.embedding).toBe(deapi.embeddingModel);
   });
 
   it('speech and speechModel are the same implementation', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     expect(deapi.speech).toBe(deapi.speechModel);
   });
 
   it('transcription and transcriptionModel are the same implementation', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     expect(deapi.transcription).toBe(deapi.transcriptionModel);
   });
 
-  it('speech/transcription models report v3 spec + provider + modelId', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+  it('speech/transcription models report v4 spec + provider + modelId', () => {
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     const speech = deapi.speech('Kokoro');
-    expect(speech.specificationVersion).toBe('v3');
+    expect(speech.specificationVersion).toBe('v4');
     expect(speech.provider).toBe('deapi.speech');
     expect(speech.modelId).toBe('Kokoro');
 
-    const transcription = deapi.transcription('WhisperLargeV3');
-    expect(transcription.specificationVersion).toBe('v3');
+    const transcription = deapi.transcription('WhisperLargeV3Ct2');
+    expect(transcription.specificationVersion).toBe('v4');
     expect(transcription.provider).toBe('deapi.transcription');
-    expect(transcription.modelId).toBe('WhisperLargeV3');
+    expect(transcription.modelId).toBe('WhisperLargeV3Ct2');
   });
 });
 
 describe('languageModel', () => {
   it('throws NoSuchModelError (modelType languageModel)', () => {
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x' });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
     let thrown: unknown;
     try {
       deapi.languageModel('whatever');
@@ -152,7 +164,7 @@ describe('lazy auth contract', () => {
     expect(() => createDeAPI().embedding('Bge_M3_FP16')).not.toThrow();
     expect(() => createDeAPI().image('Flux1schnell')).not.toThrow();
     expect(() => createDeAPI().speech('Kokoro')).not.toThrow();
-    expect(() => createDeAPI().transcription('WhisperLargeV3')).not.toThrow();
+    expect(() => createDeAPI().transcription('WhisperLargeV3Ct2')).not.toThrow();
   });
 
   it('the missing-key error surfaces only at invocation time (embed)', async () => {
@@ -167,25 +179,25 @@ describe('lazy auth contract', () => {
 
   it('explicit apiKey overrides a missing env var at invocation', async () => {
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-explicit', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-explicit', fetch: fetchMock });
     await embed({ model: deapi.embedding('Bge_M3_FP16'), value: 'hi' });
     const { init } = lastRequest(fetchMock);
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-explicit');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-explicit');
   });
 
   it('explicit apiKey overrides the env var value', async () => {
-    process.env[ENV_KEY] = 'dpn-sk-fromenv';
+    process.env[ENV_KEY] = 'sk-dp-fromenv';
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-explicit', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-explicit', fetch: fetchMock });
     await embed({ model: deapi.embedding('Bge_M3_FP16'), value: 'hi' });
     const { init } = lastRequest(fetchMock);
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-explicit');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-explicit');
   });
 });
 
 describe('embed() request/response', () => {
   it('hits <baseURL>/embeddings with Authorization and flows the vector back', async () => {
-    process.env[ENV_KEY] = 'dpn-sk-envkey';
+    process.env[ENV_KEY] = 'sk-dp-envkey';
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
     const deapi = createDeAPI({ fetch: fetchMock });
 
@@ -196,7 +208,7 @@ describe('embed() request/response', () => {
 
     const { url, init } = lastRequest(fetchMock);
     expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/embeddings`);
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-envkey');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-envkey');
 
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('Bge_M3_FP16');
@@ -209,7 +221,7 @@ describe('embed() request/response', () => {
   it('respects a custom baseURL for the embeddings endpoint', async () => {
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
     const deapi = createDeAPI({
-      apiKey: 'dpn-sk-x',
+      apiKey: 'sk-dp-x',
       baseURL: 'https://proxy.internal/v1',
       fetch: fetchMock,
     });
@@ -222,7 +234,7 @@ describe('embed() request/response', () => {
 
 describe('generateImage() request/response', () => {
   it('hits <baseURL>/images/generations with body fields', async () => {
-    process.env[ENV_KEY] = 'dpn-sk-envkey';
+    process.env[ENV_KEY] = 'sk-dp-envkey';
     const fetchMock = jsonFetch(200, IMAGE_OK);
     const deapi = createDeAPI({ fetch: fetchMock });
 
@@ -234,7 +246,7 @@ describe('generateImage() request/response', () => {
 
     const { url, init } = lastRequest(fetchMock);
     expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/images/generations`);
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-envkey');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-envkey');
 
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('Flux1schnell');
@@ -258,7 +270,7 @@ describe('generateSpeech() request/response', () => {
   }
 
   it('hits <baseURL>/audio/speech with Authorization and returns audio bytes', async () => {
-    process.env[ENV_KEY] = 'dpn-sk-envkey';
+    process.env[ENV_KEY] = 'sk-dp-envkey';
     const audioBytes = new Uint8Array([1, 2, 3, 4, 5]);
     const fetchMock = audioFetch(audioBytes);
     const deapi = createDeAPI({ fetch: fetchMock });
@@ -271,7 +283,7 @@ describe('generateSpeech() request/response', () => {
 
     const { url, init } = lastRequest(fetchMock);
     expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/audio/speech`);
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-envkey');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-envkey');
 
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('Kokoro');
@@ -288,7 +300,7 @@ describe('generateSpeech() request/response', () => {
       message: 'Native speech error',
       statusCode: 422,
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     let thrown: unknown;
     try {
       await generateSpeech({
@@ -307,22 +319,22 @@ describe('generateSpeech() request/response', () => {
 
 describe('transcribe() request/response', () => {
   it('hits <baseURL>/audio/transcriptions with Authorization and returns text', async () => {
-    process.env[ENV_KEY] = 'dpn-sk-envkey';
+    process.env[ENV_KEY] = 'sk-dp-envkey';
     const fetchMock = jsonFetch(200, { text: 'transcribed words' });
     const deapi = createDeAPI({ fetch: fetchMock });
 
     // Lead with mp3 magic bytes (0xFF 0xFB) so the AI SDK detects audio/mpeg.
     const { text } = await transcribe({
-      model: deapi.transcription('WhisperLargeV3'),
+      model: deapi.transcription('WhisperLargeV3Ct2'),
       audio: new Uint8Array([0xff, 0xfb, 10, 20, 30]),
     });
 
     const { url, init } = lastRequest(fetchMock);
     expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/audio/transcriptions`);
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-envkey');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-envkey');
     expect(init.body).toBeInstanceOf(FormData);
     const form = init.body as unknown as FormData;
-    expect(form.get('model')).toBe('WhisperLargeV3');
+    expect(form.get('model')).toBe('WhisperLargeV3Ct2');
     expect(form.get('response_format')).toBe('json');
     expect(form.get('file')).toBeInstanceOf(Blob);
 
@@ -335,11 +347,11 @@ describe('transcribe() request/response', () => {
       message: 'Native transcription error',
       statusCode: 422,
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     let thrown: unknown;
     try {
       await transcribe({
-        model: deapi.transcription('WhisperLargeV3'),
+        model: deapi.transcription('WhisperLargeV3Ct2'),
         audio: new Uint8Array([0xff, 0xfb, 1, 2, 3]),
         maxRetries: 0,
       });
@@ -349,6 +361,94 @@ describe('transcribe() request/response', () => {
     const err = thrown as { statusCode?: number; message?: string };
     expect(err.statusCode).toBe(422);
     expect(String(err.message)).toContain('Native transcription error');
+  });
+});
+
+describe('experimental_generateVideo() start/status flow', () => {
+  it('creates the job, polls until completed, downloads the content with auth', async () => {
+    const VIDEO_ID = 'vid-123';
+    const mp4 = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109]);
+    const statuses = ['queued', 'in_progress', 'completed'];
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/videos') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ id: VIDEO_ID, status: 'queued' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.endsWith(`/videos/${VIDEO_ID}/content`)) {
+        return new Response(mp4, {
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+        });
+      }
+      if (url.endsWith(`/videos/${VIDEO_ID}`)) {
+        return new Response(
+          JSON.stringify({ id: VIDEO_ID, status: statuses.shift() }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      throw new Error('unexpected URL ' + url);
+    });
+    process.env[ENV_KEY] = 'sk-dp-envkey';
+    const deapi = createDeAPI({ fetch: fetchMock });
+
+    const { video, warnings } = await generateVideo({
+      model: deapi.video('Ltxv_13B_0_9_8_Distilled_FP8'),
+      prompt: 'a paper boat on a river',
+      duration: 1,
+      resolution: '512x512',
+      poll: { intervalMs: 1, timeoutMs: 5_000 },
+    });
+
+    expect(video.uint8Array).toEqual(mp4);
+    expect(video.mediaType).toBe('video/mp4');
+    expect(warnings).toEqual([]);
+
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toBe(`${DEAPI_DEFAULT_BASE_URL}/videos`);
+    expect(urls.filter((u) => u === `${DEAPI_DEFAULT_BASE_URL}/videos/${VIDEO_ID}`)).toHaveLength(3);
+    expect(urls.at(-1)).toBe(`${DEAPI_DEFAULT_BASE_URL}/videos/${VIDEO_ID}/content`);
+    for (const call of fetchMock.mock.calls) {
+      expect(headerValue((call[1] ?? {}) as RequestInit, 'authorization')).toBe(
+        'Bearer sk-dp-envkey',
+      );
+    }
+    const start = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(JSON.parse(String(start.body))).toEqual({
+      model: 'Ltxv_13B_0_9_8_Distilled_FP8',
+      prompt: 'a paper boat on a river',
+      seconds: '1',
+      size: '512x512',
+    });
+    // The SDK adds an idempotency key to the billable start request.
+    expect(headerValue(start, 'idempotency-key')).toMatch(/^aisdk_vid_/);
+  });
+
+  it('a failed job surfaces as an error from generateVideo', async () => {
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) =>
+      new Response(
+        JSON.stringify(
+          init?.method === 'POST'
+            ? { id: 'v1', status: 'queued' }
+            : {
+                id: 'v1',
+                status: 'failed',
+                error: { code: 'job_failed', message: 'Job failed during rendering.' },
+              },
+        ),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
+    await expect(
+      generateVideo({
+        model: deapi.video('Ltx2_3_22B_Dist_INT8'),
+        prompt: 'x',
+        poll: { intervalMs: 1, timeoutMs: 5_000 },
+      }),
+    ).rejects.toThrow(/Job failed during rendering/);
   });
 });
 
@@ -383,14 +483,14 @@ describe('headers, custom fetch, abortSignal', () => {
   it('custom static headers are merged into the request', async () => {
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
     const deapi = createDeAPI({
-      apiKey: 'dpn-sk-x',
+      apiKey: 'sk-dp-x',
       headers: { 'X-Org': 'acme' },
       fetch: fetchMock,
     });
     await embed({ model: deapi.embedding('Bge_M3_FP16'), value: 'hi' });
     const { init } = lastRequest(fetchMock);
     expect(headerValue(init, 'x-org')).toBe('acme');
-    expect(headerValue(init, 'authorization')).toBe('Bearer dpn-sk-x');
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-x');
   });
 
   it('drops headers whose resolved value is undefined (defensive guard)', async () => {
@@ -399,7 +499,7 @@ describe('headers, custom fetch, abortSignal', () => {
     // through combineHeaders, and the fetch wrapper must skip it rather than
     // crash on Headers.set(key, undefined).
     const deapi = createDeAPI({
-      apiKey: 'dpn-sk-x',
+      apiKey: 'sk-dp-x',
       headers: { 'X-Present': 'yes', 'X-Absent': undefined as unknown as string },
       fetch: fetchMock,
     });
@@ -411,14 +511,14 @@ describe('headers, custom fetch, abortSignal', () => {
 
   it('the custom fetch is actually used', async () => {
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     await embed({ model: deapi.embedding('Bge_M3_FP16'), value: 'hi' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('per-call headers reach the request', async () => {
     const fetchMock = jsonFetch(200, EMBEDDING_OK);
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     await embed({
       model: deapi.embedding('Bge_M3_FP16'),
       value: 'hi',
@@ -443,7 +543,7 @@ describe('headers, custom fetch, abortSignal', () => {
           signal?.addEventListener('abort', onAbort);
         }),
     );
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     const controller = new AbortController();
     controller.abort();
     await expect(
@@ -462,7 +562,7 @@ describe('error envelopes surfaced through real ai-sdk calls', () => {
     const fetchMock = jsonFetch(401, {
       error: { message: 'Invalid API key', type: 'invalid_request_error' },
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-bad', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-bad', fetch: fetchMock });
     let thrown: unknown;
     try {
       await embed({
@@ -485,7 +585,7 @@ describe('error envelopes surfaced through real ai-sdk calls', () => {
       errors: [{ field: 'size' }],
       statusCode: 422,
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     let thrown: unknown;
     try {
       await embed({
@@ -509,7 +609,7 @@ describe('error envelopes surfaced through real ai-sdk calls', () => {
       message: 'Native image error',
       statusCode: 422,
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     let thrown: unknown;
     try {
       await generateImage({
@@ -534,7 +634,7 @@ describe('error envelopes surfaced through real ai-sdk calls', () => {
           headers: { 'content-type': 'text/html' },
         }),
     );
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     let thrown: unknown;
     try {
       await embed({
@@ -549,9 +649,9 @@ describe('error envelopes surfaced through real ai-sdk calls', () => {
   });
 });
 
-describe('image-editing guard (Sec-4)', () => {
-  /** A minimal, valid ImageModelV3CallOptions with no files/mask. */
-  function baseImageOptions(): ImageModelV3CallOptions {
+describe('image model: editing, mask guard and response format', () => {
+  /** A minimal, valid ImageModelV4CallOptions with no files/mask. */
+  function baseImageOptions(): ImageModelV4CallOptions {
     return {
       prompt: 'a red cube',
       n: 1,
@@ -564,19 +664,97 @@ describe('image-editing guard (Sec-4)', () => {
     };
   }
 
-  it('preserves the underlying ImageModelV3 surface (spec/provider/modelId)', () => {
-    const model = createDeAPI({ apiKey: 'dpn-sk-x' }).image('Flux1schnell');
-    expect(model.specificationVersion).toBe('v3');
+  it('preserves the underlying ImageModelV4 surface and declares file (not mask) support', () => {
+    const model = createDeAPI({ apiKey: 'sk-dp-x' }).image('Flux1schnell');
+    expect(model.specificationVersion).toBe('v4');
     expect(model.provider).toBe('deapi.image');
     expect(model.modelId).toBe('Flux1schnell');
-    // maxImagesPerCall is forwarded from the underlying model (a value, not the
-    // guard wrapper inventing one).
-    expect('maxImagesPerCall' in model).toBe(true);
+    expect(model.maxImagesPerCall).toBe(10);
+    expect(model.supportsFileInputs).toBe(true);
+    expect(model.supportsMaskInputs).toBe(false);
   });
 
-  it('throws UnsupportedFunctionalityError when files are supplied', async () => {
+  it('routes input files to <baseURL>/images/edits as multipart with auth', async () => {
     const fetchMock = jsonFetch(200, IMAGE_OK);
-    const model = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock }).image(
+    const model = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock }).image(
+      'QwenImageEdit_Plus_NF4',
+    );
+    const result = await model.doGenerate({
+      ...baseImageOptions(),
+      prompt: 'make the sky stormy',
+      files: [{ type: 'file', data: 'aGk=', mediaType: 'image/png' }],
+    });
+
+    expect(result.images).toEqual(['aGVsbG8=']);
+    const { url, init } = lastRequest(fetchMock);
+    expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/images/edits`);
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-x');
+    const form = init.body as unknown as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect(form.get('model')).toBe('QwenImageEdit_Plus_NF4');
+    expect(form.get('prompt')).toBe('make the sky stormy');
+    expect(form.get('image')).toBeInstanceOf(Blob);
+    expect(form.get('response_format')).toBe('b64_json');
+    expect(form.get('mask')).toBeNull();
+  });
+
+  it('edits via generateImage({ prompt: { images, text } }) from ai', async () => {
+    const fetchMock = jsonFetch(200, IMAGE_OK);
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
+    const result = await generateImage({
+      model: deapi.image('Flux_2_Klein_4B_BF16'),
+      prompt: {
+        images: [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])],
+        text: 'combine into a poster',
+      },
+    });
+    expect(result.image.base64).toBe('aGVsbG8=');
+    expect(lastRequest(fetchMock).url).toBe(
+      `${DEAPI_DEFAULT_BASE_URL}/images/edits`,
+    );
+  });
+
+  it('downloads a URL input image WITHOUT sending the deAPI key to that host', async () => {
+    const fetchMock = vi.fn<(input: unknown, init?: RequestInit) => Promise<Response>>(async (input) => {
+      const url = String(input);
+      if (url.startsWith('https://images.example.com/')) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        });
+      }
+      return new Response(JSON.stringify(IMAGE_OK), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const model = createDeAPI({
+      apiKey: 'sk-dp-secret',
+      headers: { 'X-Org': 'acme' },
+      fetch: fetchMock,
+    }).image('QwenImageEdit_Plus_NF4');
+
+    await model.doGenerate({
+      ...baseImageOptions(),
+      files: [{ type: 'url', url: 'https://images.example.com/in.png' }],
+    });
+
+    const download = fetchMock.mock.calls.find((c) =>
+      String(c[0]).startsWith('https://images.example.com/'),
+    );
+    expect(download).toBeDefined();
+    const downloadInit = (download?.[1] ?? {}) as RequestInit;
+    expect(headerValue(downloadInit, 'authorization')).toBeNull();
+    expect(headerValue(downloadInit, 'x-org')).toBeNull();
+
+    const { url, init } = lastRequest(fetchMock);
+    expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/images/edits`);
+    expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-secret');
+  });
+
+  it('throws UnsupportedFunctionalityError when a mask is supplied (no inpainting)', async () => {
+    const fetchMock = jsonFetch(200, IMAGE_OK);
+    const model = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock }).image(
       'Flux1schnell',
     );
     let thrown: unknown;
@@ -584,39 +762,21 @@ describe('image-editing guard (Sec-4)', () => {
       await model.doGenerate({
         ...baseImageOptions(),
         files: [{ type: 'file', data: 'aGk=', mediaType: 'image/png' }],
-      });
-    } catch (e) {
-      thrown = e;
-    }
-    expect(UnsupportedFunctionalityError.isInstance(thrown)).toBe(true);
-    expect((thrown as UnsupportedFunctionalityError).functionality).toBe(
-      'image editing (files/mask)',
-    );
-    // The guard fails BEFORE touching the network.
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('throws UnsupportedFunctionalityError when a mask is supplied', async () => {
-    const fetchMock = jsonFetch(200, IMAGE_OK);
-    const model = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock }).image(
-      'Flux1schnell',
-    );
-    let thrown: unknown;
-    try {
-      await model.doGenerate({
-        ...baseImageOptions(),
         mask: { type: 'file', data: 'aGk=', mediaType: 'image/png' },
       });
     } catch (e) {
       thrown = e;
     }
     expect(UnsupportedFunctionalityError.isInstance(thrown)).toBe(true);
+    expect((thrown as UnsupportedFunctionalityError).functionality).toBe(
+      'image inpainting (mask)',
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does NOT throw on an empty files array (delegates to generation)', async () => {
+  it('an empty files array is plain generation', async () => {
     const fetchMock = jsonFetch(200, IMAGE_OK);
-    const model = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock }).image(
+    const model = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock }).image(
       'Flux1schnell',
     );
     const result = await model.doGenerate({
@@ -624,21 +784,91 @@ describe('image-editing guard (Sec-4)', () => {
       files: [],
     });
     expect(result.images.length).toBe(1);
-    const { url } = lastRequest(fetchMock);
-    expect(url).toBe(`${DEAPI_DEFAULT_BASE_URL}/images/generations`);
-  });
-
-  it('normal generation still delegates to the underlying model (no guard)', async () => {
-    const fetchMock = jsonFetch(200, IMAGE_OK);
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
-    const result = await generateImage({
-      model: deapi.image('Flux1schnell'),
-      prompt: 'a blue sphere',
-    });
-    expect(result.image.base64).toBe('aGVsbG8=');
     expect(lastRequest(fetchMock).url).toBe(
       `${DEAPI_DEFAULT_BASE_URL}/images/generations`,
     );
+  });
+
+  it('forwards deAPI provider options and lets the caller choose response_format', async () => {
+    const fetchMock = vi.fn<(input: unknown, init?: RequestInit) => Promise<Response>>(async (input) => {
+      const url = String(input);
+      if (url.startsWith('https://results.example.com/')) {
+        return new Response(new Uint8Array([7, 7, 7]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        });
+      }
+      return new Response(
+        JSON.stringify({ data: [{ url: 'https://results.example.com/a.png' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
+    const result = await generateImage({
+      model: deapi.image('Flux1schnell'),
+      prompt: 'a blue sphere',
+      providerOptions: { deapi: { response_format: 'url', quality: 'low' } },
+    });
+
+    const generation = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith('/images/generations'),
+    );
+    const body = JSON.parse(String((generation?.[1] ?? {}).body));
+    expect(body.response_format).toBe('url');
+    expect(body.quality).toBe('low');
+
+    const download = fetchMock.mock.calls.find((c) =>
+      String(c[0]).startsWith('https://results.example.com/'),
+    );
+    expect(
+      headerValue((download?.[1] ?? {}) as RequestInit, 'authorization'),
+    ).toBeNull();
+    expect(result.image.uint8Array).toEqual(new Uint8Array([7, 7, 7]));
+  });
+});
+
+describe('createAuthInjectingFetch (origin scoping)', () => {
+  const BASE = 'https://oai.deapi.ai/v1';
+  const resolve = () => ({ Authorization: 'Bearer sk-dp-x', 'X-Org': 'acme' });
+
+  function okFetch(): Mock {
+    return vi.fn(async () => new Response('{}', { status: 200 }));
+  }
+
+  it('adds auth + user headers + redirect:manual for the baseURL origin (string, URL, Request)', async () => {
+    const base = okFetch();
+    const wrapped = createAuthInjectingFetch(BASE, resolve, base);
+    await wrapped(`${BASE}/models`);
+    await wrapped(new URL(`${BASE}/models`));
+    await wrapped(new Request(`${BASE}/models`));
+    expect(base).toHaveBeenCalledTimes(3);
+    for (const call of base.mock.calls) {
+      const init = call[1] as RequestInit;
+      expect(headerValue(init, 'authorization')).toBe('Bearer sk-dp-x');
+      expect(headerValue(init, 'x-org')).toBe('acme');
+      expect(init.redirect).toBe('manual');
+    }
+  });
+
+  it('passes other origins through untouched and never resolves the key for them', async () => {
+    const base = okFetch();
+    const resolver = vi.fn(resolve);
+    const wrapped = createAuthInjectingFetch(BASE, resolver, base);
+    const init = { headers: { accept: 'image/*' } };
+    await wrapped('https://results.example.com/a.png', init);
+    await wrapped(new URL('https://evil.example/v1/models'));
+    expect(resolver).not.toHaveBeenCalled();
+    expect(base.mock.calls[0]?.[1]).toBe(init);
+    expect(base.mock.calls[1]?.[1]).toBeUndefined();
+  });
+
+  it('falls back to globalThis.fetch when no custom fetch is given', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+    const wrapped = createAuthInjectingFetch(BASE, resolve, undefined);
+    await wrapped(`${BASE}/models`);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -652,7 +882,7 @@ describe('custom fetch sets redirect:manual (Sec-5)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     await embed({ model: deapi.embedding('Bge_M3_FP16'), value: 'hi' });
     expect(capturedRedirect).toBe('manual');
   });
@@ -667,7 +897,7 @@ describe('custom fetch sets redirect:manual (Sec-5)', () => {
         headers: { location: 'https://evil.example/v1/embeddings' },
       });
     });
-    const deapi = createDeAPI({ apiKey: 'dpn-sk-x', fetch: fetchMock });
+    const deapi = createDeAPI({ apiKey: 'sk-dp-x', fetch: fetchMock });
     await expect(
       embed({
         model: deapi.embedding('Bge_M3_FP16'),

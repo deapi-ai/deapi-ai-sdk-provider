@@ -48,9 +48,9 @@ function lastFormData(fetch: Mock): FormData {
 }
 
 describe('DeAPITranscriptionModel', () => {
-  it('exposes the V3 identity', () => {
+  it('exposes the V4 identity', () => {
     const model = makeModel(jsonFetch(200, { text: 'hi' }));
-    expect(model.specificationVersion).toBe('v3');
+    expect(model.specificationVersion).toBe('v4');
     expect(model.provider).toBe('deapi.transcription');
     expect(model.modelId).toBe('whisper-1');
   });
@@ -116,6 +116,67 @@ describe('DeAPITranscriptionModel', () => {
     });
 
     expect(lastFormData(fetch).get('language')).toBe('fr');
+  });
+
+  it('requests verbose_json with timestamps and maps segments, words, language and duration', async () => {
+    const fetch = jsonFetch(200, {
+      task: 'transcribe',
+      language: 'english',
+      duration: 5.24,
+      text: 'Good morning.',
+      words: [
+        { word: 'Good', start: 0.12, end: 0.38 },
+        { word: 'morning', start: 0.38, end: 0.91 },
+      ],
+      segments: [
+        { id: 0, seek: 0, start: 0, end: 5.24, text: 'Good morning.', tokens: [] },
+      ],
+    });
+    const model = makeModel(fetch, 'WhisperLargeV3Ct2');
+
+    const result = await model.doGenerate({
+      audio: new Uint8Array([1, 2]),
+      mediaType: 'audio/mpeg',
+      timestampGranularities: ['word', 'segment'],
+      headers: { 'X-Trace': 't-1' },
+    });
+
+    const form = lastFormData(fetch);
+    expect(form.get('response_format')).toBe('verbose_json');
+    expect(form.getAll('timestamp_granularities[]')).toEqual(['word', 'segment']);
+    const init = (fetch.mock.calls.at(-1)?.[1] ?? {}) as RequestInit;
+    expect(new Headers(init.headers).get('x-trace')).toBe('t-1');
+
+    expect(result.text).toBe('Good morning.');
+    expect(result.segments).toEqual([
+      { text: 'Good morning.', startSecond: 0, endSecond: 5.24 },
+    ]);
+    expect(result.words).toEqual([
+      { text: 'Good', startSecond: 0.12, endSecond: 0.38 },
+      { text: 'morning', startSecond: 0.38, endSecond: 0.91 },
+    ]);
+    expect(result.language).toBe('en');
+    expect(result.durationInSeconds).toBe(5.24);
+  });
+
+  it('omits words when the response has none and leaves unknown languages undefined', async () => {
+    const fetch = jsonFetch(200, {
+      language: 'klingon',
+      duration: 1,
+      text: 'x',
+      segments: [{ start: 0, end: 1, text: 'x' }],
+    });
+    const model = makeModel(fetch);
+
+    const result = await model.doGenerate({
+      audio: new Uint8Array([1]),
+      mediaType: 'audio/mpeg',
+      providerOptions: { deapi: { response_format: 'verbose_json' } },
+    });
+
+    expect('words' in result).toBe(false);
+    expect(result.language).toBeUndefined();
+    expect(result.segments).toHaveLength(1);
   });
 
   it('throws a guard error for oversize audio before any request', async () => {
