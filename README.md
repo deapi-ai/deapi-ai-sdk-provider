@@ -1,6 +1,6 @@
 # @deapi/ai-sdk-provider
 
-OpenAI-compatible inference for open-source models — a community [Vercel AI SDK](https://ai-sdk.dev) provider for [deAPI](https://deapi.ai). This `0.2.0` release covers **image generation**, **embeddings**, **speech** (text-to-speech), and **transcription** (speech-to-text).
+OpenAI-compatible inference for open-source models — a community [Vercel AI SDK](https://ai-sdk.dev) provider for [deAPI](https://deapi.ai). Version `0.3.0` targets **AI SDK 7** (specification V4) and covers **image generation and editing**, **video generation**, **embeddings**, **speech** (text-to-speech), and **transcription** (speech-to-text).
 
 [![npm version](https://img.shields.io/npm/v/@deapi/ai-sdk-provider.svg)](https://www.npmjs.com/package/@deapi/ai-sdk-provider)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -21,17 +21,17 @@ yarn add @deapi/ai-sdk-provider ai
 bun add @deapi/ai-sdk-provider ai
 ```
 
-`ai` (the Vercel AI SDK) is a peer dependency — install it alongside this package. Supported range: `ai` `>=6 <7`.
+`ai` (the Vercel AI SDK) is a peer dependency — install it alongside this package. Supported range: `ai` `^7.0.0` (Node.js 22 or newer, like AI SDK 7 itself). For AI SDK 6 use `@deapi/ai-sdk-provider@0.2`.
 
 ## Authentication
 
-Set your deAPI API key (keys start with the `dpn-sk-` prefix) in the `DEAPI_API_KEY` environment variable:
+Create an API key in the [deAPI dashboard](https://app.deapi.ai/dashboard). Keys look like `sk-dp-<id>-<secret>`. Set it in the `DEAPI_API_KEY` environment variable:
 
 ```bash
-export DEAPI_API_KEY="dpn-sk-..."
+export DEAPI_API_KEY="sk-dp-..."
 ```
 
-Or pass it explicitly when creating the provider (see below). An explicit `apiKey` takes precedence over the environment variable.
+Or pass it explicitly when creating the provider (see below). An explicit `apiKey` takes precedence over the environment variable. The key is sent unchanged as a `Bearer` token; keys issued in older formats keep working.
 
 Authentication is **lazy**: importing the package or calling `createDeAPI()` never reads the key. The key is resolved per request, so a missing key only throws when you actually invoke a model — not at import or construction time.
 
@@ -54,7 +54,7 @@ const deapi = createDeAPI({
 });
 ```
 
-`createDeAPI(settings?)` accepts `apiKey`, `baseURL`, `headers` (extra headers merged into every request), and `fetch` (a custom fetch implementation).
+`createDeAPI(settings?)` accepts `apiKey`, `baseURL`, `headers` (extra headers merged into every request to deAPI), and `fetch` (a custom fetch implementation).
 
 > Do **not** pass an `Authorization` header in `settings.headers`. The provider manages
 > authentication itself (it sets the `Bearer` token from `apiKey` / `DEAPI_API_KEY`). An
@@ -65,19 +65,17 @@ const deapi = createDeAPI({
 
 The provider exposes both canonical methods and short aliases — all are public and supported:
 
-| Canonical | Alias | Returns |
-|---|---|---|
-| `deapi.imageModel(id)` | `deapi.image(id)` | image model |
-| `deapi.embeddingModel(id)` | `deapi.embedding(id)` | embedding model |
-| `deapi.speechModel(id)` | `deapi.speech(id)` | speech model |
-| `deapi.transcriptionModel(id)` | `deapi.transcription(id)` | transcription model |
+| Canonical | Alias | Returns | Use with (`ai`) |
+|---|---|---|---|
+| `deapi.imageModel(id)` | `deapi.image(id)` | image model | `generateImage` |
+| `deapi.videoModel(id)` | `deapi.video(id)` | video model | `experimental_generateVideo` |
+| `deapi.embeddingModel(id)` | `deapi.embedding(id)` | embedding model | `embed`, `embedMany` |
+| `deapi.speechModel(id)` | `deapi.speech(id)` | speech model | `generateSpeech` |
+| `deapi.transcriptionModel(id)` | `deapi.transcription(id)` | transcription model | `transcribe` |
 
-The short forms (`image`, `embedding`, `speech`, `transcription`) are aliases of the canonical
-`*Model` methods. Use whichever you prefer; the examples below use the short aliases.
+The examples below use the short aliases.
 
 ## Image generation
-
-Use the stable `generateImage` from `ai`:
 
 ```ts
 import { generateImage } from 'ai';
@@ -89,15 +87,84 @@ const { image } = await generateImage({
   size: '512x512',
 });
 
-// `image.uint8Array` holds the decoded image bytes; `image.base64` the base64 string.
+// `image.uint8Array` holds the decoded PNG bytes; `image.base64` the base64 string.
 console.log(image.uint8Array.length);
 ```
 
-deAPI returns images as `b64_json`, which the AI SDK decodes to a `Uint8Array` for you.
+Each model accepts its own list of sizes (for example `Flux1schnell`: `512x512` to `1536x1024`) and a maximum `n`. The provider requests `b64_json` so the image arrives in the same response; deAPI-specific fields such as `quality` (`low`, `medium`, `high`, …) can be passed through `providerOptions.deapi`:
+
+```ts
+const { image } = await generateImage({
+  model: deapi.image('Flux1schnell'),
+  prompt: 'an isometric city block at golden hour',
+  size: '1024x1024',
+  providerOptions: { deapi: { quality: 'high' } },
+});
+```
+
+`aspectRatio` and `seed` are not supported by this endpoint and produce warnings.
+
+## Image editing
+
+Pass input images in the prompt to edit them. The request goes to deAPI's `/images/edits` endpoint with instruction-following edit models (`QwenImageEdit_Plus_NF4` takes one image, `Flux_2_Klein_4B_BF16` up to three; 10 MB per image):
+
+```ts
+import { generateImage } from 'ai';
+import { readFile } from 'node:fs/promises';
+import { deapi } from '@deapi/ai-sdk-provider';
+
+const { image } = await generateImage({
+  model: deapi.image('QwenImageEdit_Plus_NF4'),
+  prompt: {
+    images: [await readFile('./source.png')],
+    text: 'make the sky stormy',
+  },
+});
+```
+
+Input images can also be URLs; the provider downloads them without sending your deAPI key to that host. Inpainting is not available: passing a `mask` throws `UnsupportedFunctionalityError`.
+
+## Video generation
+
+Video generation is asynchronous. The model implements the AI SDK start/status flow: `experimental_generateVideo` creates the job (`POST /videos`), polls its status (`GET /videos/{id}`) and downloads the finished file (`GET /videos/{id}/content`):
+
+```ts
+import { experimental_generateVideo as generateVideo } from 'ai';
+import { writeFile } from 'node:fs/promises';
+import { deapi } from '@deapi/ai-sdk-provider';
+
+const { video } = await generateVideo({
+  model: deapi.video('Ltx2_3_22B_Dist_INT8'),
+  prompt: 'a paper boat drifting down a rain-soaked street',
+  duration: 5,
+  resolution: '768x768',
+  poll: { intervalMs: 5_000, timeoutMs: 600_000 }, // optional; these are the defaults
+});
+
+await writeFile('./clip.mp4', video.uint8Array);
+```
+
+For image-to-video pass the first frame in the prompt (bytes or a public URL):
+
+```ts
+const { video } = await generateVideo({
+  model: deapi.video('Ltxv_13B_0_9_8_Distilled_FP8'),
+  prompt: { image: await readFile('./first-frame.png'), text: 'the camera pushes in slowly' },
+  duration: 3,
+  resolution: '512x512',
+});
+```
+
+| Model | Durations (s) | Resolutions | fps |
+|---|---|---|---|
+| `Ltxv_13B_0_9_8_Distilled_FP8` | 1, 2, 3, 4 | `512x512`, `512x768`, `768x512`, `768x768` | 30 |
+| `Ltx2_3_22B_Dist_INT8` | 3, 4, 5, 6, 8, 10 | `768x768`, `768x1024`, `1024x768`, `1024x1024` | 24 |
+| `Ltx2_5_22B_Dist_INT8` | 3, 4, 5, 6, 8, 10 | `768x768`, `1344x768`, `768x1344`, `1024x768`, `768x1024` | 24 |
+| `MiniMaxH3_33B_Turbo_INT8` | 8 | `1344x768`, `768x1344`, `1024x768`, `768x1024`, `768x768` | 24 |
+
+All four accept a first-frame image. `duration` maps to `seconds` and `resolution` to `size`; omitted values use the model's defaults, and each model rejects values outside its own list. A prompt is required, also for image-to-video. `aspectRatio`, `fps`, `seed`, `generateAudio`, `inputReferences`, and last-frame images have no counterpart and produce warnings. Each call renders one video (`n > 1` is split into separate jobs by the AI SDK). The start request carries the AI SDK's `Idempotency-Key`, so a retried start does not create a second job. deAPI sends no completion webhooks on this endpoint, so the AI SDK polls.
 
 ## Embeddings
-
-Use `embed` from `ai`:
 
 ```ts
 import { embed } from 'ai';
@@ -111,73 +178,81 @@ const { embedding } = await embed({
 console.log(embedding.length); // 1024
 ```
 
-`Bge_M3_FP16` returns 1024-dimensional vectors at the time of writing — confirm the dimensions for the model you choose (see [Model IDs](#model-ids) below; the slug is illustrative).
+`Bge_M3_FP16` returns 1024-dimensional vectors; the `dimensions` option does not resize them. `embedMany` sends at most 100 values per request (the endpoint's limit) and splits larger inputs automatically.
 
 ## Speech (text-to-speech)
 
-Use the experimental `generateSpeech` from `ai`. deAPI's speech endpoint is synchronous and returns binary audio directly:
-
 ```ts
-import { experimental_generateSpeech as generateSpeech } from 'ai';
+import { generateSpeech } from 'ai';
 import { deapi } from '@deapi/ai-sdk-provider';
 
 const { audio } = await generateSpeech({
   model: deapi.speech('Kokoro'),
   text: 'Hello from deAPI.',
-  voice: 'alloy', // optional; defaults to 'alloy'
+  voice: 'af_nova', // optional; defaults to 'alloy' (mapped to a Kokoro voice)
 });
 
-// `audio.uint8Array` holds the decoded audio bytes (mp3 by default).
+// `audio.uint8Array` holds the mp3 bytes.
 console.log(audio.uint8Array.length);
 ```
 
-The default output format is `mp3` (`audio/mpeg`) and the default voice is `alloy`. Pass `outputFormat` to request a different container, and `voice` to choose a different voice for the model. deAPI-specific options (`speed`, `language`, `instructions`) can also be supplied via `providerOptions.deapi`.
+Output is `mp3`. `voice`, `speed`, `language`, and `instructions` are forwarded and validated per model (for example, `instructions` only on `Qwen3_TTS_12Hz_1_7B_VoiceDesign`, `speed` only on `Kokoro`). The same options can also be supplied via `providerOptions.deapi`.
 
 ## Transcription (speech-to-text)
 
-Use the experimental `transcribe` from `ai`. Pass the audio bytes (a `Uint8Array`, `Buffer`, or base64 string); the AI SDK detects the media type from the audio and forwards it to the provider:
-
 ```ts
-import { experimental_transcribe as transcribe } from 'ai';
+import { transcribe } from 'ai';
 import { readFile } from 'node:fs/promises';
 import { deapi } from '@deapi/ai-sdk-provider';
 
 const { text } = await transcribe({
-  model: deapi.transcription('WhisperLargeV3'),
+  model: deapi.transcription('WhisperLargeV3Ct2'),
   audio: await readFile('./speech.mp3'),
 });
 
 console.log(text);
 ```
 
-The audio is uploaded as multipart `file` form data; the API returns `{ text }`. A single audio file must be **20 MB or smaller** — a larger file is rejected with a clear error before any request is made. Segment timings, language, and duration are not returned by this surface.
+The audio is uploaded as multipart `file` form data. A single audio file must be **20 MB or smaller** — a larger file is rejected with a clear error before any request is made.
+
+Request timestamps to get segments (and word timings), the detected language, and the duration:
+
+```ts
+const result = await transcribe({
+  model: deapi.transcription('WhisperLargeV3Ct2'),
+  audio: await readFile('./speech.mp3'),
+  timestampGranularities: ['segment', 'word'],
+  providerOptions: { deapi: { language: 'en' } }, // optional hint
+});
+
+console.log(result.segments, result.words, result.language, result.durationInSeconds);
+```
+
+With `timestampGranularities` the provider asks for `response_format: 'verbose_json'`; without it, the plain `json` response returns text only.
 
 ## Model IDs
 
-Model identifiers are plain slug strings passed through to deAPI. New deAPI models work **without a package update** — the id type stays open (`string & {}`), so any current slug is accepted.
+Model identifiers are plain slug strings passed through to deAPI. New deAPI models work **without a package update** — the id types stay open (`string & {}`), so any current slug is accepted while common ones get editor autocompletion.
 
-Do not hardcode model lists in your application logic. Discover the available models live via the OpenAI-compatible models endpoint:
+The catalog depends on your account. List the models available to your key with the OpenAI-compatible models endpoint:
 
 ```bash
 curl https://oai.deapi.ai/v1/models \
   -H "Authorization: Bearer $DEAPI_API_KEY"
 ```
 
-The slugs shown in this README — `Flux1schnell`, `ZImageTurbo_INT8` (image), `Bge_M3_FP16` (embeddings), `Kokoro` (speech), and `WhisperLargeV3` (transcription) — are illustrative examples only, not an exhaustive or guaranteed list. Always check `/v1/models` for what is currently offered.
+The slugs in this README (`Flux1schnell`, `Flux_2_Klein_4B_BF16`, `ZImageTurbo_INT8`, `QwenImageEdit_Plus_NF4`, `Ltx2_3_22B_Dist_INT8`, `Ltxv_13B_0_9_8_Distilled_FP8`, `Bge_M3_FP16`, `Kokoro`, `WhisperLargeV3Ct2`, …) are examples, not an exhaustive or guaranteed list. See the [deAPI OpenAI-compatibility reference](https://docs.deapi.ai/openai-compatibility) for per-model limits.
 
 ## Limitations
 
-This release is deliberately scoped. Be aware that:
-
-- **No language / chat / completion models.** deAPI is a non-LLM inference surface. `deapi.languageModel(...)` (and therefore chat/completion usage) throws `NoSuchModelError`.
-- **No tool-calling or structured output.** These depend on language models, which are not provided.
-- **No image editing (inpainting).** Only image *generation* is supported. Passing `files` or a `mask` to an image model (image editing / inpainting) throws `UnsupportedFunctionalityError` — this surface is unsupported and untested against deAPI.
-- **Transcription returns text only.** The transcription surface returns `{ text }`; it does not provide segment timings, detected language, or duration. A single audio file is capped at 20 MB.
-- **Video is not exposed through the AI SDK.** deAPI video generation is available only via the deAPI native REST API; the AI SDK provider interface (`ProviderV3`) has no video model, so there is no AI SDK surface for it here.
+- **No language / chat / completion models.** `deapi.languageModel(...)` (and therefore chat, tool calling, and structured output) throws `NoSuchModelError`.
+- **No inpainting.** Image editing takes input images and an instruction; a `mask` throws `UnsupportedFunctionalityError`.
+- **No streaming.** None of the deAPI endpoints stream; every call returns one complete result.
+- **Video:** one first-frame image at most; no last-frame, reference, audio, fps, or seed controls (see above).
 
 ## Using `@ai-sdk/openai-compatible` directly
 
-deAPI exposes a standard OpenAI-compatible surface, so you can also skip this package and use [`@ai-sdk/openai-compatible`](https://www.npmjs.com/package/@ai-sdk/openai-compatible) directly:
+deAPI exposes a standard OpenAI-compatible surface, so for images and embeddings you can also use [`@ai-sdk/openai-compatible`](https://www.npmjs.com/package/@ai-sdk/openai-compatible) directly:
 
 ```ts
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
@@ -189,28 +264,40 @@ const deapi = createOpenAICompatible({
 });
 ```
 
-This package adds deAPI-specific defaults, lazy auth, base-URL validation, and deAPI error mapping on top of that surface.
+This package adds video, speech, and transcription models, deAPI-specific defaults, lazy auth, base-URL validation, and deAPI error mapping on top of that surface.
 
 ## Base URL
 
 `baseURL` must point at the **OpenAI-compatible** endpoint (`https://oai.deapi.ai/v1`, the default). It is validated at construction:
 
 - It must be an absolute `https` URL (`http` is allowed only for loopback hosts such as `localhost`).
-- It must not contain embedded credentials.
-- The deAPI **native** surface (`/api/v2`) is async/job-based and is **rejected** — it is not OpenAI-compatible and cannot be used as the provider's base URL.
+- It must not contain embedded credentials, a query string, or a fragment.
+- The deAPI **native** surface (`/api/v2`) is **rejected** — it is not OpenAI-compatible and cannot be used as the provider's base URL.
 
 ## Security
 
 Errors thrown by this provider are AI SDK `APICallError` instances. These carry `responseBody` and `requestBodyValues` (which includes your prompt / input). Do **not** blindly log full error objects in production — they may contain user input. The Bearer API key is never included in error objects or logs.
 
-**No automatic redirect following.** The provider issues requests with `redirect: 'manual'`, so it does **not** auto-follow HTTP redirects (3xx) returned by the API. This is a deliberate security default: it prevents your `Bearer` API key from being silently replayed to a different origin via a redirect. A redirect response surfaces as an error rather than being followed.
+**The key only goes to deAPI.** The `Authorization` header and your custom `headers` are added only to requests for the origin of the configured `baseURL`. Other requests made through the provider (for example downloading an input image URL) are sent without them.
+
+**No automatic redirect following.** Requests to deAPI use `redirect: 'manual'`, so the provider does **not** auto-follow HTTP redirects (3xx). This prevents your `Bearer` API key from being silently replayed to a different origin via a redirect. A redirect response surfaces as an error rather than being followed.
 
 **Auth is provider-managed.** Do not set an `Authorization` header via `settings.headers` — the provider derives the `Bearer` token from `apiKey` / `DEAPI_API_KEY` and rejects an `Authorization` header passed in `settings.headers` to prevent it from overriding the real key.
 
 ## Compatibility
 
-- Vercel AI SDK: `ai` `>=6 <7`.
-- New deAPI models are picked up automatically — model IDs are passed through as strings, so no package update is required when deAPI adds a model.
+- Vercel AI SDK: `ai` `^7.0.0` (provider specification V4). AI SDK 6 users: `@deapi/ai-sdk-provider@0.2`.
+- Node.js 22 or newer. The package ships ESM and CommonJS builds; the CommonJS build loads the ESM-only AI SDK 7 packages through Node's `require(esm)` support.
+- New deAPI models are picked up automatically — model IDs are passed through as strings.
+
+## Live smoke test
+
+`examples/smoke.mjs` makes real, billed calls with the smallest settings the API accepts (one 512×512 image, one short sentence of speech and its transcription, one embedding, one 1-second video):
+
+```bash
+npm ci && npm run build
+DEAPI_API_KEY=sk-dp-... node examples/smoke.mjs   # DEAPI_SMOKE_SKIP_VIDEO=1 skips the video
+```
 
 ## Disclaimer
 

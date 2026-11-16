@@ -21,20 +21,19 @@ Before opening an issue, please search existing issues to avoid duplicates.
 This repository supports the `@deapi/ai-sdk-provider` package itself:
 
 - Provider setup: `createDeAPI()`, the default `deapi` instance, configuration, and auth.
-- **Image generation** (`deapi.image(...)` with `generateImage` from `ai`).
+- **Image generation and editing** (`deapi.image(...)` with `generateImage` from `ai`).
+- **Video generation** (`deapi.video(...)` with `experimental_generateVideo` from `ai`).
 - **Embeddings** (`deapi.embedding(...)` with `embed` from `ai`).
-- **Speech / text-to-speech** (`deapi.speech(...)` with `experimental_generateSpeech` from `ai`).
-- **Transcription / speech-to-text** (`deapi.transcription(...)` with `experimental_transcribe` from `ai`).
+- **Speech / text-to-speech** (`deapi.speech(...)` with `generateSpeech` from `ai`).
+- **Transcription / speech-to-text** (`deapi.transcription(...)` with `transcribe` from `ai`).
 - Error handling, types, and packaging (ESM/CJS, type defs).
 
 ## Out of Scope
 
-- **Image editing (inpainting).** Only image generation is supported; passing `files`/`mask`
-  throws `UnsupportedFunctionalityError`.
-- **Video.** deAPI video is a native REST capability and has no AI SDK interface in this
-  provider.
-- **LLM / chat / completion / tool-calling / structured output.** deAPI is a non-LLM
-  provider; `languageModel()` intentionally throws `NoSuchModelError`.
+- **Inpainting (masks).** deAPI has no inpainting model; passing a `mask` throws
+  `UnsupportedFunctionalityError`. Instruction-based editing with input images is supported.
+- **LLM / chat / completion / tool-calling / structured output.** Not provided by
+  this package; `languageModel()` intentionally throws `NoSuchModelError`.
 - The deAPI service, its models, account, billing, or quota issues — these belong to the
   [deAPI documentation](https://docs.deapi.ai) and [Discord](https://discord.com/invite/UFfK5YRBsr).
 - General Vercel AI SDK usage unrelated to this provider — see the

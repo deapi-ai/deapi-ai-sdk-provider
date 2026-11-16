@@ -21,17 +21,18 @@ Describe the behavior or API you'd like to see.
 
 ## Scope
 
-This package targets image generation, embeddings, speech, and transcription.
-Note where your request fits:
+This package targets image generation and editing, video generation, embeddings,
+speech, and transcription. Note where your request fits:
 
-- [ ] Image generation
+- [ ] Image generation / editing
+- [ ] Video generation
 - [ ] Embeddings
 - [ ] Speech (text-to-speech)
 - [ ] Transcription (speech-to-text)
 - [ ] Other (please explain)
 
-> Note: deAPI is a non-LLM provider. Chat/completion/tool-calling/structured-output
-> and video-via-AI-SDK are explicitly out of scope for this provider.
+> Note: this provider does not offer chat/completion/tool-calling/structured-output,
+> and inpainting (masks) is not available on deAPI.
 
 ## Alternatives considered
 
