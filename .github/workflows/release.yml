@@ -24,7 +24,12 @@ name: Release (npm trusted publishing)
 #     Settings -> Environments).
 #   - Uses npm trusted publishing (OIDC). No NODE_AUTH_TOKEN / .npmrc secret.
 #     npm is PINNED to an explicit version that supports OIDC trusted publishing
-#     (never `@latest`).
+#     and staged publishing (never `@latest`).
+#   - Staged publishing: the workflow runs `npm stage publish`, so the version
+#     lands in the package's staging queue, not on the registry. A maintainer
+#     approves it with 2FA (npmjs.com -> package -> Staged Packages, or
+#     `npm stage approve <stage-id>`). The trusted publisher on npm is
+#     configured for stage publish only, so CI can never publish directly.
 
 on:
   push:
@@ -143,11 +148,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Pin npm to a version that supports trusted publishing
-        # npm trusted publishing (OIDC) + --provenance requires npm >= 11.5.1.
-        # The npm bundled with actions/setup-node (Node 20/22) is 10.x, too old.
-        # Pin an EXPLICIT version (never @latest) for a reproducible toolchain.
-        run: npm install -g npm@11.6.2
+      - name: Pin npm to a version that supports staged trusted publishing
+        # `npm stage publish` needs npm >= 11.15.0 (OIDC trusted publishing
+        # + --provenance need >= 11.5.1). The npm bundled with
+        # actions/setup-node is too old. Pin an EXPLICIT version (never @latest).
+        run: npm install -g npm@11.21.2
 
       - name: Skip publish if this version is already on npm (idempotent)
         id: already
@@ -160,11 +165,11 @@ jobs:
             echo "already=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish (provenance, trusted publishing via OIDC)
+      - name: Stage publish (provenance, trusted publishing via OIDC)
         if: steps.already.outputs.already != 'true'
         # No NODE_AUTH_TOKEN: npm uses the OIDC id-token for trusted publishing.
-        # publishConfig in package.json sets access=public and provenance=true.
-        run: npm publish --provenance --access public
+        # The version goes to the staging queue; a maintainer approves it with 2FA.
+        run: npm stage publish --provenance --access public
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -172,18 +177,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${GITHUB_REF_NAME}" --generate-notes --title "${GITHUB_REF_NAME}"
 
-      - name: Verify published version
+      - name: Next step (approve the staged version)
+        if: steps.already.outputs.already != 'true'
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          echo "Waiting for npm to reflect version ${PKG_VERSION}..."
-          for i in $(seq 1 10); do
-            PUBLISHED=$(npm view @deapi/ai-sdk-provider version 2>/dev/null || true)
-            if [ "$PUBLISHED" = "$PKG_VERSION" ]; then
-              echo "Confirmed @deapi/ai-sdk-provider@${PUBLISHED} on npm."
-              exit 0
-            fi
-            echo "  attempt $i: registry reports '${PUBLISHED}', expected '${PKG_VERSION}' — retrying in 15s"
-            sleep 15
-          done
-          echo "ERROR: npm did not report version ${PKG_VERSION} after publish."
-          exit 1
+          echo "::notice::@deapi/ai-sdk-provider@${PKG_VERSION} is staged. Approve it with 2FA on npmjs.com (package -> Staged Packages) or with 'npm stage approve <stage-id>'."
