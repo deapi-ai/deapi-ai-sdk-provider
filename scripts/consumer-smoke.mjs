@@ -12,10 +12,12 @@
 //      (c) importing WITHOUT DEAPI_API_KEY must NOT throw (lazy auth)
 //      (d) TYPECHECK: a .ts consumer importing { createDeAPI } must `tsc
 //                     --noEmit` clean against the shipped .d.ts
-//      (e) MOCK REQUEST: with a fake fetch, drive embed()/generateImage()/
-//                        generateSpeech()/transcribe() from 'ai' through the
+//      (e) MOCK REQUEST: with a fake fetch, drive embed()/generateImage()
+//                        (generation + edit)/generateSpeech()/transcribe()/
+//                        experimental_generateVideo() from 'ai' through the
 //                        tarball and assert URL/headers/body (incl. multipart
-//                        FormData for transcription) + lazy auth (no key at
+//                        FormData for transcription and edits, and the video
+//                        start/status/content flow) + lazy auth (no key at
 //                        construct, key resolved per call)
 //
 // Determinism (Audit Blocker-3/4):
@@ -39,10 +41,11 @@ const PKG_NAME = '@deapi/ai-sdk-provider';
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const nodeCmd = process.execPath;
 
-// PIN the `ai` peer for a deterministic install. We pin to the major (the
-// supported peer range is `>=6 <7`); use the exact installed version to match
-// what the rest of the repo is tested against.
-const AI_PIN = 'ai@6.0.202';
+// PIN the `ai` peer for a deterministic install (the supported peer range is
+// `^7.0.0`); use the exact version the rest of the repo is tested against.
+const AI_PIN = 'ai@7.0.173';
+// PIN TypeScript for the consumer typecheck as well (same major as the repo).
+const TS_PIN = 'typescript@6.0.3';
 
 // Timeouts (ms) so no child process can hang CI (Audit Blocker-4).
 const INSTALL_TIMEOUT_MS = 300_000; // npm install of tarball + ai
@@ -152,10 +155,10 @@ try {
 
   // 3. Install the tarball + the PINNED `ai` peer + typescript into the clean
   // project. Pinning `ai` keeps the smoke deterministic across runs.
-  log(`installing tarball + ${AI_PIN} + typescript into consumer project...`);
+  log(`installing tarball + ${AI_PIN} + ${TS_PIN} into consumer project...`);
   run(
     npmCmd,
-    ['install', '--no-audit', '--no-fund', tarballPath, AI_PIN, 'typescript'],
+    ['install', '--no-audit', '--no-fund', tarballPath, AI_PIN, TS_PIN],
     tempDir,
     { timeout: INSTALL_TIMEOUT_MS },
   );
@@ -192,6 +195,7 @@ try {
       `const inst = createDeAPI();`,
       `if (typeof inst.image !== 'function') { console.error('createDeAPI().image is not a function (CJS)'); process.exit(7); }`,
       `if (!deapi || typeof deapi.embedding !== 'function') { console.error('deapi.embedding is not a function (CJS)'); process.exit(8); }`,
+      `if (typeof deapi.video !== 'function') { console.error('deapi.video is not a function (CJS)'); process.exit(11); }`,
       `console.log('CJS-OK');`,
     ].join('\n'),
   );
@@ -211,6 +215,7 @@ try {
       `  void mod.createDeAPI();`,
       `  void mod.deapi.image('Flux1schnell');`,
       `  void mod.deapi.embedding('Bge_M3_FP16');`,
+      `  void mod.deapi.video('Ltxv_13B_0_9_8_Distilled_FP8');`,
       `  console.log('NOKEY-OK');`,
       `} catch (e) {`,
       `  console.error('import/construct threw without DEAPI_API_KEY: ' + (e && e.message));`,
@@ -250,16 +255,26 @@ try {
     tsFile,
     [
       `import { createDeAPI, deapi } from '${PKG_NAME}';`,
-      `import type { DeAPIProvider, DeAPIProviderSettings } from '${PKG_NAME}';`,
+      `import type { DeAPIProvider, DeAPIProviderSettings, DeAPIVideoModelId } from '${PKG_NAME}';`,
+      `import { embed, experimental_generateVideo, generateImage } from 'ai';`,
       ``,
-      `const settings: DeAPIProviderSettings = { apiKey: 'dpn-sk-test', baseURL: 'https://oai.deapi.ai/v1' };`,
+      `const settings: DeAPIProviderSettings = { apiKey: 'sk-dp-test', baseURL: 'https://oai.deapi.ai/v1' };`,
       `const provider: DeAPIProvider = createDeAPI(settings);`,
       `// exercise the public surface so the types are actually used`,
       `const img = provider.image('Flux1schnell');`,
       `const emb = provider.embedding('Bge_M3_FP16');`,
       `const img2 = deapi.imageModel('Flux1schnell');`,
       `const emb2 = deapi.embeddingModel('Bge_M3_FP16');`,
-      `void img; void emb; void img2; void emb2; void provider.specificationVersion;`,
+      `type VideoSlug = DeAPIVideoModelId;`,
+      `const videoSlug: VideoSlug = 'Ltx2_3_22B_Dist_INT8';`,
+      `const vid = provider.video(videoSlug);`,
+      `// the models must be accepted by the AI SDK 7 functions (type-level only)`,
+      `const typed = async () => {`,
+      `  await embed({ model: emb, value: 'x' });`,
+      `  await generateImage({ model: img, prompt: 'x' });`,
+      `  await experimental_generateVideo({ model: vid, prompt: 'x' });`,
+      `};`,
+      `void img; void emb; void img2; void emb2; void typed; void provider.specificationVersion;`,
     ].join('\n'),
   );
   log('typechecking TypeScript consumer (tsc --noEmit)...');
@@ -287,7 +302,7 @@ try {
     mockFile,
     [
       `import { createDeAPI } from '${PKG_NAME}';`,
-      `import { embed, generateImage, experimental_generateSpeech as generateSpeech, experimental_transcribe as transcribe } from 'ai';`,
+      `import { embed, generateImage, generateSpeech, transcribe, experimental_generateVideo as generateVideo } from 'ai';`,
       ``,
       `const calls = [];`,
       `function isFormData(b) { return typeof FormData !== 'undefined' && b instanceof FormData; }`,
@@ -314,6 +329,26 @@ try {
       `      status: 200, headers: { 'content-type': 'audio/mpeg' },`,
       `    }));`,
       `  }`,
+      `  if (url.endsWith('/images/edits')) {`,
+      `    return Promise.resolve(new Response(JSON.stringify({`,
+      `      data: [{ b64_json: Buffer.from('fake-edited-bytes').toString('base64') }],`,
+      `    }), { status: 200, headers: { 'content-type': 'application/json' } }));`,
+      `  }`,
+      `  if (url.endsWith('/videos') && init?.method === 'POST') {`,
+      `    return Promise.resolve(new Response(JSON.stringify({ id: 'vid-1', status: 'queued' }), {`,
+      `      status: 200, headers: { 'content-type': 'application/json' },`,
+      `    }));`,
+      `  }`,
+      `  if (url.endsWith('/videos/vid-1')) {`,
+      `    return Promise.resolve(new Response(JSON.stringify({ id: 'vid-1', status: 'completed' }), {`,
+      `      status: 200, headers: { 'content-type': 'application/json' },`,
+      `    }));`,
+      `  }`,
+      `  if (url.endsWith('/videos/vid-1/content')) {`,
+      `    return Promise.resolve(new Response(Buffer.from('fake-mp4-bytes'), {`,
+      `      status: 200, headers: { 'content-type': 'video/mp4' },`,
+      `    }));`,
+      `  }`,
       `  if (url.endsWith('/audio/transcriptions')) {`,
       `    return Promise.resolve(new Response(JSON.stringify({ text: 'hello from deapi' }), {`,
       `      status: 200, headers: { 'content-type': 'application/json' },`,
@@ -326,7 +361,7 @@ try {
       `// env at REQUEST time only. Set it now (after construct) to prove laziness.`,
       `if (process.env.DEAPI_API_KEY) { console.error('precondition: DEAPI_API_KEY must be unset'); process.exit(20); }`,
       `const provider = createDeAPI({ fetch: fakeFetch });`,
-      `process.env.DEAPI_API_KEY = 'dpn-sk-mock-key';`,
+      `process.env.DEAPI_API_KEY = 'sk-dp-mock-key';`,
       ``,
       `// --- embed() ---`,
       `const { embedding } = await embed({ model: provider.embedding('Bge_M3_FP16'), value: 'hello world' });`,
@@ -334,7 +369,7 @@ try {
       `const embCall = calls.find((c) => c.url.endsWith('/embeddings'));`,
       `if (!embCall) { console.error('no /embeddings request captured'); process.exit(22); }`,
       `if (embCall.url !== 'https://oai.deapi.ai/v1/embeddings') { console.error('bad embeddings URL: ' + embCall.url); process.exit(23); }`,
-      `if (embCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header: ' + embCall.headers['authorization']); process.exit(24); }`,
+      `if (embCall.headers['authorization'] !== 'Bearer sk-dp-mock-key') { console.error('bad/missing Authorization header: ' + embCall.headers['authorization']); process.exit(24); }`,
       `if (embCall.body?.model !== 'Bge_M3_FP16') { console.error('bad embeddings model in body: ' + JSON.stringify(embCall.body)); process.exit(25); }`,
       `if (JSON.stringify(embCall.body?.input) !== JSON.stringify(['hello world'])) { console.error('bad embeddings input in body: ' + JSON.stringify(embCall.body)); process.exit(26); }`,
       ``,
@@ -344,7 +379,7 @@ try {
       `const imgCall = calls.find((c) => c.url.endsWith('/images/generations'));`,
       `if (!imgCall) { console.error('no /images/generations request captured'); process.exit(28); }`,
       `if (imgCall.url !== 'https://oai.deapi.ai/v1/images/generations') { console.error('bad images URL: ' + imgCall.url); process.exit(29); }`,
-      `if (imgCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header (image): ' + imgCall.headers['authorization']); process.exit(30); }`,
+      `if (imgCall.headers['authorization'] !== 'Bearer sk-dp-mock-key') { console.error('bad/missing Authorization header (image): ' + imgCall.headers['authorization']); process.exit(30); }`,
       `if (imgCall.body?.model !== 'Flux1schnell') { console.error('bad image model in body: ' + JSON.stringify(imgCall.body)); process.exit(31); }`,
       `if (imgCall.body?.prompt !== 'a red cube') { console.error('bad image prompt in body: ' + JSON.stringify(imgCall.body)); process.exit(32); }`,
       ``,
@@ -354,26 +389,42 @@ try {
       `const speechCall = calls.find((c) => c.url.endsWith('/audio/speech'));`,
       `if (!speechCall) { console.error('no /audio/speech request captured'); process.exit(34); }`,
       `if (speechCall.url !== 'https://oai.deapi.ai/v1/audio/speech') { console.error('bad speech URL: ' + speechCall.url); process.exit(35); }`,
-      `if (speechCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header (speech): ' + speechCall.headers['authorization']); process.exit(36); }`,
+      `if (speechCall.headers['authorization'] !== 'Bearer sk-dp-mock-key') { console.error('bad/missing Authorization header (speech): ' + speechCall.headers['authorization']); process.exit(36); }`,
       `if (speechCall.body?.model !== 'Kokoro') { console.error('bad speech model in body: ' + JSON.stringify(speechCall.body)); process.exit(37); }`,
       `if (speechCall.body?.input !== 'Hello from deAPI.') { console.error('bad speech input in body: ' + JSON.stringify(speechCall.body)); process.exit(38); }`,
       `if (speechCall.body?.voice !== 'alloy') { console.error('bad speech voice in body: ' + JSON.stringify(speechCall.body)); process.exit(39); }`,
       ``,
       `// --- transcribe() ---`,
-      `const transcribeRes = await transcribe({ model: provider.transcription('WhisperLargeV3'), audio: new Uint8Array([1, 2, 3, 4]) });`,
+      `const transcribeRes = await transcribe({ model: provider.transcription('WhisperLargeV3Ct2'), audio: new Uint8Array([1, 2, 3, 4]) });`,
       `if (transcribeRes.text !== 'hello from deapi') { console.error('bad transcription text: ' + JSON.stringify(transcribeRes.text)); process.exit(40); }`,
       `const transcribeCall = calls.find((c) => c.url.endsWith('/audio/transcriptions'));`,
       `if (!transcribeCall) { console.error('no /audio/transcriptions request captured'); process.exit(41); }`,
       `if (transcribeCall.url !== 'https://oai.deapi.ai/v1/audio/transcriptions') { console.error('bad transcription URL: ' + transcribeCall.url); process.exit(42); }`,
-      `if (transcribeCall.headers['authorization'] !== 'Bearer dpn-sk-mock-key') { console.error('bad/missing Authorization header (transcription): ' + transcribeCall.headers['authorization']); process.exit(43); }`,
+      `if (transcribeCall.headers['authorization'] !== 'Bearer sk-dp-mock-key') { console.error('bad/missing Authorization header (transcription): ' + transcribeCall.headers['authorization']); process.exit(43); }`,
       `if (!transcribeCall.formData) { console.error('transcription body was not FormData'); process.exit(44); }`,
-      `if (transcribeCall.formData.get('model') !== 'WhisperLargeV3') { console.error('bad transcription model field: ' + transcribeCall.formData.get('model')); process.exit(45); }`,
+      `if (transcribeCall.formData.get('model') !== 'WhisperLargeV3Ct2') { console.error('bad transcription model field: ' + transcribeCall.formData.get('model')); process.exit(45); }`,
       `if (!transcribeCall.formData.get('file')) { console.error('transcription FormData missing file field'); process.exit(46); }`,
+      ``,
+      `// --- generateImage() edit (input image -> /images/edits, multipart) ---`,
+      `const editRes = await generateImage({ model: provider.image('QwenImageEdit_Plus_NF4'), prompt: { images: [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2])], text: 'make it blue' } });`,
+      `if (!editRes.image) { console.error('no edited image returned'); process.exit(47); }`,
+      `const editCall = calls.find((c) => c.url.endsWith('/images/edits'));`,
+      `if (!editCall || !editCall.formData) { console.error('no multipart /images/edits request captured'); process.exit(48); }`,
+      `if (editCall.headers['authorization'] !== 'Bearer sk-dp-mock-key') { console.error('bad/missing Authorization header (edit)'); process.exit(49); }`,
+      `if (editCall.formData.get('model') !== 'QwenImageEdit_Plus_NF4' || !editCall.formData.get('image')) { console.error('bad edit form fields'); process.exit(50); }`,
+      ``,
+      `// --- experimental_generateVideo() (start -> status -> content) ---`,
+      `const videoRes = await generateVideo({ model: provider.video('Ltxv_13B_0_9_8_Distilled_FP8'), prompt: 'a paper boat', duration: 1, resolution: '512x512', poll: { intervalMs: 1 } });`,
+      `if (!videoRes.video || videoRes.video.uint8Array.length === 0) { console.error('no video returned'); process.exit(51); }`,
+      `const videoStart = calls.find((c) => c.url === 'https://oai.deapi.ai/v1/videos');`,
+      `if (!videoStart || videoStart.body?.model !== 'Ltxv_13B_0_9_8_Distilled_FP8' || videoStart.body?.seconds !== '1') { console.error('bad video start request: ' + JSON.stringify(videoStart && videoStart.body)); process.exit(52); }`,
+      `const videoContent = calls.find((c) => c.url.endsWith('/videos/vid-1/content'));`,
+      `if (!videoContent || videoContent.headers['authorization'] !== 'Bearer sk-dp-mock-key') { console.error('video content not downloaded with auth'); process.exit(53); }`,
       ``,
       `console.log('MOCK-OK');`,
     ].join('\n'),
   );
-  log('running mock-request consumer (embed + generateImage via fake fetch, lazy auth)...');
+  log('running mock-request consumer (embed, image, edit, speech, transcription, video via fake fetch, lazy auth)...');
   // This script sets DEAPI_API_KEY itself AFTER construct; start without it.
   const mockOut = runNode(mockFile, tempDir, cleanEnv);
   if (!mockOut.includes('MOCK-OK')) fail(`mock-request consumer did not report OK. Output:\n${mockOut}`);

@@ -1,4 +1,4 @@
-import type { SpeechModelV3CallOptions } from '@ai-sdk/provider';
+import type { SpeechModelV4CallOptions } from '@ai-sdk/provider';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SPEECH_RESPONSE_FORMAT,
@@ -8,8 +8,8 @@ import {
 } from './deapi-speech-options';
 
 function callOptions(
-  overrides: Partial<SpeechModelV3CallOptions> = {},
-): SpeechModelV3CallOptions {
+  overrides: Partial<SpeechModelV4CallOptions> = {},
+): SpeechModelV4CallOptions {
   return { text: 'hello world', ...overrides };
 }
 

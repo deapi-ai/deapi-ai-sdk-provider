@@ -10,12 +10,12 @@ latest published minor release line.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.2.x   | :white_check_mark: |
-| < 0.2.0 | :x:                |
+| 0.3.x   | :white_check_mark: |
+| < 0.3.0 | :x:                |
 
-Scope: **image generation, embeddings, speech (text-to-speech), and transcription
-(speech-to-text).** LLM/chat/tool-calling, image editing (inpainting), and
-video-via-AI-SDK are out of scope.
+Scope: **image generation and editing, video generation, embeddings, speech
+(text-to-speech), and transcription (speech-to-text).** LLM/chat/tool-calling and
+inpainting (masks) are out of scope.
 
 ## Reporting a Vulnerability
 
@@ -49,12 +49,14 @@ timeline with you. We do not operate a paid bug-bounty program.
 
 ## Handling of Your deAPI API Key
 
-The deAPI API key (prefix `dpn-sk-`) is **your secret**. This package is designed so that:
+The deAPI API key (format `sk-dp-<id>-<secret>`) is **your secret**. This package is designed so that:
 
 - The key is read lazily, **per request** — importing or constructing the provider never
   reads it.
 - The key is supplied via the `DEAPI_API_KEY` environment variable or `settings.apiKey`,
-  and is sent only as a `Bearer` token to the configured `baseURL`.
+  and is sent only as a `Bearer` token to the origin of the configured `baseURL`.
+  Other requests made through the provider's fetch (for example downloading an
+  input image URL for an edit) never carry the key or your custom headers.
 - The Bearer key is **never** placed into thrown error objects or logs by this package.
 
 Your responsibilities as a user:

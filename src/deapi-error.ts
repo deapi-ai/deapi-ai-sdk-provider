@@ -21,8 +21,8 @@ const deapiOpenAIErrorSchema = z.object({
 /**
  * Native deAPI error envelope.
  *
- * Used by the native async/job-based surface. Not the configured baseURL for
- * 0.1.0, but parsed defensively so misrouted responses still produce a typed,
+ * Used by the native async/job-based surface. Never the configured baseURL
+ * for this provider, but parsed defensively so misrouted responses still produce a typed,
  * readable error instead of an opaque parse failure.
  *
  * Example: `{ "data": null, "message": "...", "errors": [...], "statusCode": 422 }`

@@ -173,47 +173,47 @@ describe('createLazyHeaders (lazy auth core)', () => {
   });
 
   it('resolves Authorization from an explicit apiKey', () => {
-    const resolve = createLazyHeaders({ apiKey: 'dpn-sk-explicit' });
+    const resolve = createLazyHeaders({ apiKey: 'sk-dp-explicit' });
     expect(resolve()).toMatchObject({
-      Authorization: 'Bearer dpn-sk-explicit',
+      Authorization: 'Bearer sk-dp-explicit',
     });
   });
 
   it('resolves Authorization from the env var when no apiKey is given', () => {
-    process.env[DEAPI_API_KEY_ENV_VAR] = 'dpn-sk-fromenv';
+    process.env[DEAPI_API_KEY_ENV_VAR] = 'sk-dp-fromenv';
     const resolve = createLazyHeaders({});
-    expect(resolve()).toMatchObject({ Authorization: 'Bearer dpn-sk-fromenv' });
+    expect(resolve()).toMatchObject({ Authorization: 'Bearer sk-dp-fromenv' });
   });
 
   it('explicit apiKey overrides the env var', () => {
-    process.env[DEAPI_API_KEY_ENV_VAR] = 'dpn-sk-fromenv';
-    const resolve = createLazyHeaders({ apiKey: 'dpn-sk-explicit' });
+    process.env[DEAPI_API_KEY_ENV_VAR] = 'sk-dp-fromenv';
+    const resolve = createLazyHeaders({ apiKey: 'sk-dp-explicit' });
     expect(resolve()).toMatchObject({
-      Authorization: 'Bearer dpn-sk-explicit',
+      Authorization: 'Bearer sk-dp-explicit',
     });
   });
 
   it('merges user-supplied static headers with Authorization', () => {
     const resolve = createLazyHeaders({
-      apiKey: 'dpn-sk-x',
+      apiKey: 'sk-dp-x',
       headers: { 'X-Custom': 'abc' },
     });
     const headers = resolve();
-    expect(headers.Authorization).toBe('Bearer dpn-sk-x');
+    expect(headers.Authorization).toBe('Bearer sk-dp-x');
     expect(headers['X-Custom']).toBe('abc');
   });
 
   it('resolves the key on EACH call (true per-request resolution)', () => {
-    process.env[DEAPI_API_KEY_ENV_VAR] = 'dpn-sk-1';
+    process.env[DEAPI_API_KEY_ENV_VAR] = 'sk-dp-1';
     const resolve = createLazyHeaders({});
-    expect(resolve().Authorization).toBe('Bearer dpn-sk-1');
-    process.env[DEAPI_API_KEY_ENV_VAR] = 'dpn-sk-2';
-    expect(resolve().Authorization).toBe('Bearer dpn-sk-2');
+    expect(resolve().Authorization).toBe('Bearer sk-dp-1');
+    process.env[DEAPI_API_KEY_ENV_VAR] = 'sk-dp-2';
+    expect(resolve().Authorization).toBe('Bearer sk-dp-2');
   });
 
   it('rejects a capitalized Authorization header in settings.headers (Sec-1)', () => {
     const resolve = createLazyHeaders({
-      apiKey: 'dpn-sk-x',
+      apiKey: 'sk-dp-x',
       headers: { Authorization: 'Bearer attacker' },
     });
     expect(() => resolve()).toThrow(
@@ -223,7 +223,7 @@ describe('createLazyHeaders (lazy auth core)', () => {
 
   it('rejects a lowercase authorization header in settings.headers (Sec-1)', () => {
     const resolve = createLazyHeaders({
-      apiKey: 'dpn-sk-x',
+      apiKey: 'sk-dp-x',
       headers: { authorization: 'Bearer attacker' },
     });
     expect(() => resolve()).toThrow(
@@ -233,9 +233,9 @@ describe('createLazyHeaders (lazy auth core)', () => {
 
   it('the managed Bearer token always wins over other user headers', () => {
     const resolve = createLazyHeaders({
-      apiKey: 'dpn-sk-real',
+      apiKey: 'sk-dp-real',
       headers: { 'X-Custom': 'abc' },
     });
-    expect(resolve().Authorization).toBe('Bearer dpn-sk-real');
+    expect(resolve().Authorization).toBe('Bearer sk-dp-real');
   });
 });

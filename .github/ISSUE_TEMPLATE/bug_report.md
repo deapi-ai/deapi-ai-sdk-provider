@@ -14,11 +14,11 @@ For security vulnerabilities, follow SECURITY.md instead of opening an issue.
 
 ## Scope check
 
-This provider covers **image generation, embeddings, speech (text-to-speech), and
-transcription (speech-to-text)**. LLM/chat/tool-calling, image editing (inpainting),
-and video are out of scope.
+This provider covers **image generation and editing, video generation, embeddings,
+speech (text-to-speech), and transcription (speech-to-text)**. LLM/chat/tool-calling
+and inpainting (masks) are out of scope.
 
-- [ ] My issue is about image generation, embeddings, speech, or transcription.
+- [ ] My issue is about images, video, embeddings, speech, or transcription.
 
 ## Describe the bug
 

@@ -14,16 +14,26 @@ import {
 export const DEAPI_DEFAULT_BASE_URL = 'https://oai.deapi.ai/v1';
 
 /**
- * Environment variable holding the deAPI API key (prefix: `dpn-sk-`).
+ * Environment variable holding the deAPI API key (format: `sk-dp-<id>-<secret>`).
+ *
+ * The key is passed through unchanged as a Bearer token; this package does not
+ * validate or rewrite its prefix (keys issued in older formats keep working).
  */
 export const DEAPI_API_KEY_ENV_VAR = 'DEAPI_API_KEY';
 
 /**
- * Known image model slug. The id type stays open (`string & {}`) so we never
- * hardcode a runtime model list — new models work without a code change while
- * still offering editor autocomplete for the common one.
+ * Known image model slugs (generation and editing). The id type stays open
+ * (`string & {}`) so we never hardcode a runtime model list — new models work
+ * without a code change while still offering editor autocomplete for common
+ * ones. The live list is `GET /v1/models`.
  */
-export type DeAPIImageModelId = 'Flux1schnell' | (string & {});
+export type DeAPIImageModelId =
+  | 'Flux1schnell'
+  | 'Flux_2_Klein_4B_BF16'
+  | 'ZImageTurbo_INT8'
+  | 'ZAnimeDistill_8Step_INT8'
+  | 'QwenImageEdit_Plus_NF4'
+  | (string & {});
 
 /**
  * Known embedding model slug. Open-ended for the same reason as above.
@@ -31,16 +41,31 @@ export type DeAPIImageModelId = 'Flux1schnell' | (string & {});
 export type DeAPIEmbeddingModelId = 'Bge_M3_FP16' | (string & {});
 
 /**
- * Known speech (text-to-speech) model slug. Open-ended for the same reason as
+ * Known speech (text-to-speech) model slugs. Open-ended for the same reason as
  * above.
  */
-export type DeAPISpeechModelId = 'Kokoro' | (string & {});
+export type DeAPISpeechModelId =
+  | 'Kokoro'
+  | 'Chatterbox'
+  | 'Qwen3_TTS_12Hz_1_7B_CustomVoice'
+  | 'Qwen3_TTS_12Hz_1_7B_VoiceDesign'
+  | (string & {});
 
 /**
  * Known transcription (speech-to-text) model slug. Open-ended for the same
  * reason as above.
  */
-export type DeAPITranscriptionModelId = 'WhisperLargeV3' | (string & {});
+export type DeAPITranscriptionModelId = 'WhisperLargeV3Ct2' | (string & {});
+
+/**
+ * Known video model slugs. Open-ended for the same reason as above.
+ */
+export type DeAPIVideoModelId =
+  | 'Ltxv_13B_0_9_8_Distilled_FP8'
+  | 'Ltx2_3_22B_Dist_INT8'
+  | 'Ltx2_5_22B_Dist_INT8'
+  | 'MiniMaxH3_33B_Turbo_INT8'
+  | (string & {});
 
 /**
  * User-facing settings for {@link createDeAPI}.
