@@ -25,7 +25,7 @@ bun add @deapi/ai-sdk-provider ai
 
 ## Authentication
 
-Create an API key in the [deAPI dashboard](https://app.deapi.ai/dashboard). Keys look like `sk-dp-<id>-<secret>`. Set it in the `DEAPI_API_KEY` environment variable:
+Create an API key in the [deAPI dashboard](https://app.deapi.ai/settings/api-keys). Keys look like `sk-dp-<id>-<secret>`. Set it in the `DEAPI_API_KEY` environment variable:
 
 ```bash
 export DEAPI_API_KEY="sk-dp-..."
@@ -134,7 +134,7 @@ import { writeFile } from 'node:fs/promises';
 import { deapi } from '@deapi/ai-sdk-provider';
 
 const { video } = await generateVideo({
-  model: deapi.video('Ltx2_3_22B_Dist_INT8'),
+  model: deapi.video('Ltx2_5_22B_Dist_INT8'),
   prompt: 'a paper boat drifting down a rain-soaked street',
   duration: 5,
   resolution: '768x768',
@@ -158,8 +158,8 @@ const { video } = await generateVideo({
 | Model | Durations (s) | Resolutions | fps |
 |---|---|---|---|
 | `Ltxv_13B_0_9_8_Distilled_FP8` | 1, 2, 3, 4 | `512x512`, `512x768`, `768x512`, `768x768` | 30 |
-| `Ltx2_3_22B_Dist_INT8` | 3, 4, 5, 6, 8, 10 | `768x768`, `768x1024`, `1024x768`, `1024x1024` | 24 |
 | `Ltx2_5_22B_Dist_INT8` | 3, 4, 5, 6, 8, 10 | `768x768`, `1344x768`, `768x1344`, `1024x768`, `768x1024` | 24 |
+| `Ltx2_3_22B_Dist_INT8` | 3, 4, 5, 6, 8, 10 | `768x768`, `768x1024`, `1024x768`, `1024x1024` | 24 |
 | `MiniMaxH3_33B_Turbo_INT8` | 8 | `1344x768`, `768x1344`, `1024x768`, `768x1024`, `768x768` | 24 |
 
 All four accept a first-frame image. `duration` maps to `seconds` and `resolution` to `size`; omitted values use the model's defaults, and each model rejects values outside its own list. A prompt is required, also for image-to-video. `aspectRatio`, `fps`, `seed`, `generateAudio`, `inputReferences`, and last-frame images have no counterpart and produce warnings. Each call renders one video (`n > 1` is split into separate jobs by the AI SDK). The start request carries the AI SDK's `Idempotency-Key`, so a retried start does not create a second job. deAPI sends no completion webhooks on this endpoint, so the AI SDK polls.
@@ -241,7 +241,7 @@ curl https://oai.deapi.ai/v1/models \
   -H "Authorization: Bearer $DEAPI_API_KEY"
 ```
 
-The slugs in this README (`Flux1schnell`, `Flux_2_Klein_4B_BF16`, `ZImageTurbo_INT8`, `QwenImageEdit_Plus_NF4`, `Ltx2_3_22B_Dist_INT8`, `Ltxv_13B_0_9_8_Distilled_FP8`, `Bge_M3_FP16`, `Kokoro`, `WhisperLargeV3Ct2`, …) are examples, not an exhaustive or guaranteed list. See the [deAPI OpenAI-compatibility reference](https://docs.deapi.ai/openai-compatibility) for per-model limits.
+The slugs in this README (`Flux1schnell`, `Flux_2_Klein_4B_BF16`, `ZImageTurbo_INT8`, `QwenImageEdit_Plus_NF4`, `Ltx2_5_22B_Dist_INT8`, `Ltxv_13B_0_9_8_Distilled_FP8`, `Bge_M3_FP16`, `Kokoro`, `WhisperLargeV3Ct2`, …) are examples, not an exhaustive or guaranteed list. See the [deAPI OpenAI-compatibility reference](https://docs.deapi.ai/openai-compatibility) for per-model limits.
 
 ## Limitations
 

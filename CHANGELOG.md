@@ -4,6 +4,13 @@ All notable changes to `@deapi/ai-sdk-provider` are documented here. The project
 follows [semantic versioning](https://semver.org/) (while in `0.x`, a minor
 version may contain breaking changes).
 
+## 0.3.1
+
+### Documentation
+
+- The README links to the API key page (https://app.deapi.ai/settings/api-keys)
+  and uses `Ltx2_5_22B_Dist_INT8` in the video example.
+
 ## 0.3.0
 
 ### Breaking changes
