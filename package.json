@@ -1,6 +1,6 @@
 {
   "name": "@deapi/ai-sdk-provider",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Vercel AI SDK provider for deAPI (image generation and editing, video, embeddings, speech, transcription) — OpenAI-compatible inference for open-source models.",
   "keywords": [
     "ai-sdk",
