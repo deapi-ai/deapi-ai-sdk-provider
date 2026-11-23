@@ -70,7 +70,7 @@
     "ai": "^7.0.0"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.92",
+    "@ai-sdk/openai-compatible": "^3.0.93",
     "@ai-sdk/provider": "^4.0.38",
     "@ai-sdk/provider-utils": "^5.0.81",
     "zod": "^4.4.3"
