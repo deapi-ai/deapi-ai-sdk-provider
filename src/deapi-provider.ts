@@ -4,7 +4,6 @@ import {
   type ImageModelV4,
   type ImageModelV4CallOptions,
   type LanguageModelV4,
-  NoSuchModelError,
   type ProviderV4,
   type SpeechModelV4,
   type TranscriptionModelV4,
@@ -16,6 +15,7 @@ import {
   withUserAgentSuffix,
 } from '@ai-sdk/provider-utils';
 import {
+  OpenAICompatibleChatLanguageModel,
   OpenAICompatibleEmbeddingModel,
   OpenAICompatibleImageModel,
   type ProviderErrorStructure,
@@ -36,6 +36,17 @@ import {
   deapiErrorToMessage,
   failedResponseHandler,
 } from './deapi-error';
+import {
+  type DeAPIChatModelId,
+  deapiChatMetadataExtractor,
+  supportsJsonSchema,
+  withJsonSchemaInstruction,
+} from './chat/deapi-chat';
+import {
+  type DeAPIListModelsOptions,
+  type DeAPIModelInfo,
+  fetchDeAPIModels,
+} from './models/deapi-models';
 import { DeAPISpeechModel } from './speech/deapi-speech-model';
 import { DeAPITranscriptionModel } from './transcription/deapi-transcription-model';
 import { DeAPIVideoModel } from './video/deapi-video-model';
@@ -49,25 +60,41 @@ const DEAPI_MAX_EMBEDDINGS_PER_CALL = 100;
 /**
  * deAPI provider.
  *
- * A {@link ProviderV4}-compatible object (AI SDK 7). As of 0.3.0 the surface is
- * IMAGE (generation + editing) + VIDEO + EMBEDDINGS + SPEECH + TRANSCRIPTION:
+ * A {@link ProviderV4}-compatible provider (AI SDK 7). As of 0.4.0 the surface
+ * is CHAT + IMAGE (generation + editing) + VIDEO + EMBEDDINGS + SPEECH +
+ * TRANSCRIPTION:
  *
+ * - `deapi(modelId)` / {@link DeAPIProvider.languageModel} /
+ *   {@link DeAPIProvider.chatModel}
  * - {@link DeAPIProvider.imageModel} / {@link DeAPIProvider.image}
  * - {@link DeAPIProvider.videoModel} / {@link DeAPIProvider.video}
  * - {@link DeAPIProvider.embeddingModel} / {@link DeAPIProvider.embedding}
  * - {@link DeAPIProvider.speechModel} / {@link DeAPIProvider.speech}
  * - {@link DeAPIProvider.transcriptionModel} / {@link DeAPIProvider.transcription}
- *
- * {@link DeAPIProvider.languageModel} is required by the `ProviderV4` interface
- * but throws `NoSuchModelError`: this package provides no chat/completion models.
  */
 export interface DeAPIProvider extends ProviderV4 {
   readonly specificationVersion: 'v4';
 
+  /** Shorthand for {@link DeAPIProvider.languageModel}. */
+  (modelId: DeAPIChatModelId): LanguageModelV4;
+
   /**
-   * Not supported. Always throws `NoSuchModelError`.
+   * Returns a chat model backed by the OpenAI-compatible surface
+   * (`POST /chat/completions`). The amount deAPI charged for each call is
+   * returned as `providerMetadata.deapi.cost` (USD), also when streaming.
    */
-  languageModel(modelId: string): LanguageModelV4;
+  languageModel(modelId: DeAPIChatModelId): LanguageModelV4;
+
+  /** Alias for {@link DeAPIProvider.languageModel}. */
+  chatModel(modelId: DeAPIChatModelId): LanguageModelV4;
+
+  /**
+   * Lists the models the key can call (`GET /models`): chat models by default,
+   * with context window, output limit, input modalities, supported parameters
+   * and per-token prices; `{ type: 'media' }` or `{ type: 'all' }` for the rest.
+   * The list and the prices depend on the key.
+   */
+  listModels(options?: DeAPIListModelsOptions): Promise<DeAPIModelInfo[]>;
 
   /**
    * Returns an embedding model backed by the OpenAI-compatible surface
@@ -308,13 +335,31 @@ export function createDeAPI(
       failedResponseHandler,
     });
 
-  const languageModel = (modelId: string): LanguageModelV4 => {
-    throw new NoSuchModelError({ modelId, modelType: 'languageModel' });
+  const languageModel = (modelId: DeAPIChatModelId): LanguageModelV4 => {
+    const jsonSchema = supportsJsonSchema(modelId);
+    const model = new OpenAICompatibleChatLanguageModel(modelId, {
+      provider: 'deapi.chat',
+      url,
+      headers,
+      fetch,
+      // The final usage chunk carries usage.cost, so streams always ask for it.
+      includeUsage: true,
+      errorStructure: deapiErrorStructure,
+      metadataExtractor: deapiChatMetadataExtractor,
+      supportsStructuredOutputs: jsonSchema,
+    });
+    return jsonSchema ? model : withJsonSchemaInstruction(model);
   };
 
-  return {
-    specificationVersion: 'v4',
+  const provider = (modelId: DeAPIChatModelId): LanguageModelV4 =>
+    languageModel(modelId);
+
+  return Object.assign(provider, {
+    specificationVersion: 'v4' as const,
     languageModel,
+    chatModel: languageModel,
+    listModels: (options?: DeAPIListModelsOptions) =>
+      fetchDeAPIModels({ url, fetch }, options),
     embeddingModel,
     imageModel,
     videoModel,
@@ -325,7 +370,18 @@ export function createDeAPI(
     video: videoModel,
     speech: speechModel,
     transcription: transcriptionModel,
-  };
+  });
+}
+
+/**
+ * Lists the models a key can call without building a provider first, e.g.
+ * `listDeAPIModels({ apiKey })`. Same result as `createDeAPI(settings).listModels(options)`.
+ */
+export function listDeAPIModels(
+  settings: DeAPIProviderSettings & DeAPIListModelsOptions = {},
+): Promise<DeAPIModelInfo[]> {
+  const { type, abortSignal, ...providerSettings } = settings;
+  return createDeAPI(providerSettings).listModels({ type, abortSignal });
 }
 
 /**

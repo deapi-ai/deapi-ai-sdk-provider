@@ -3,6 +3,7 @@
 // WARNING: makes REAL, BILLED calls to the deAPI API. Every request is kept as
 // small as the API allows:
 //   - preflight GET /v1/models (free)
+//   - 1 short chat reply and 1 streamed chat reply (deepseek-v4.1-flash, 16 tokens)
 //   - 1 embedding of a short string (Bge_M3_FP16)
 //   - 1 image, 512x512, quality "low" (Flux1schnell — the fewest steps)
 //   - 1 short sentence of speech (Kokoro)
@@ -21,6 +22,8 @@ import { writeFileSync } from 'node:fs';
 import { deapi } from '../dist/index.mjs';
 import {
   embed,
+  generateText,
+  streamText,
   experimental_generateVideo as generateVideo,
   generateImage,
   generateSpeech,
@@ -57,6 +60,35 @@ try {
     `HTTP ${res.status}, models=${models}`);
 } catch (e) {
   ok('GET /v1/models returns 200 with models', false, `threw: ${e?.name}: ${e?.message}`);
+}
+
+console.log('\n--- chat (deepseek-v4.1-flash) ---');
+try {
+  const { text, providerMetadata } = await generateText({
+    model: deapi('deepseek-v4.1-flash'),
+    prompt: 'Say hi.',
+    maxOutputTokens: 16,
+    reasoning: 'none',
+  });
+  const cost = providerMetadata?.deapi?.cost;
+  ok('generateText returns text and cost', text.length > 0 && typeof cost === 'number',
+    `chars=${text.length}, cost=${cost}`);
+} catch (e) {
+  ok('generateText returns text and cost', false, `threw: ${e?.name}: ${e?.message}`);
+}
+try {
+  const result = streamText({
+    model: deapi('deepseek-v4.1-flash'),
+    prompt: 'Count to three.',
+    maxOutputTokens: 16,
+    reasoning: 'none',
+  });
+  const text = await result.text;
+  const cost = (await result.providerMetadata)?.deapi?.cost;
+  ok('streamText returns text and cost', text.length > 0 && typeof cost === 'number',
+    `chars=${text.length}, cost=${cost}`);
+} catch (e) {
+  ok('streamText returns text and cost', false, `threw: ${e?.name}: ${e?.message}`);
 }
 
 console.log('\n--- embedding (Bge_M3_FP16) ---');
