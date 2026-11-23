@@ -1,6 +1,6 @@
 # @deapi/ai-sdk-provider
 
-OpenAI-compatible inference for open-source models — a community [Vercel AI SDK](https://ai-sdk.dev) provider for [deAPI](https://deapi.ai). Version `0.3.0` targets **AI SDK 7** (specification V4) and covers **image generation and editing**, **video generation**, **embeddings**, **speech** (text-to-speech), and **transcription** (speech-to-text).
+OpenAI-compatible inference for open-source models — a community [Vercel AI SDK](https://ai-sdk.dev) provider for [deAPI](https://deapi.ai). Version `0.4.0` targets **AI SDK 7** (specification V4) and covers **chat** (13 open models, with streaming, tools, structured output, reasoning and the cost of every call), **image generation and editing**, **video generation**, **embeddings**, **speech** (text-to-speech), and **transcription** (speech-to-text).
 
 [![npm version](https://img.shields.io/npm/v/@deapi/ai-sdk-provider.svg)](https://www.npmjs.com/package/@deapi/ai-sdk-provider)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -67,6 +67,7 @@ The provider exposes both canonical methods and short aliases — all are public
 
 | Canonical | Alias | Returns | Use with (`ai`) |
 |---|---|---|---|
+| `deapi.languageModel(id)` | `deapi(id)`, `deapi.chatModel(id)` | chat model | `generateText`, `streamText` |
 | `deapi.imageModel(id)` | `deapi.image(id)` | image model | `generateImage` |
 | `deapi.videoModel(id)` | `deapi.video(id)` | video model | `experimental_generateVideo` |
 | `deapi.embeddingModel(id)` | `deapi.embedding(id)` | embedding model | `embed`, `embedMany` |
@@ -74,6 +75,113 @@ The provider exposes both canonical methods and short aliases — all are public
 | `deapi.transcriptionModel(id)` | `deapi.transcription(id)` | transcription model | `transcribe` |
 
 The examples below use the short aliases.
+
+## Chat
+
+```ts
+import { generateText } from 'ai';
+import { deapi } from '@deapi/ai-sdk-provider';
+
+const { text, providerMetadata } = await generateText({
+  model: deapi('deepseek-v4.1-flash'),
+  prompt: 'Write a haiku about open-source models.',
+});
+
+console.log(text);
+console.log(providerMetadata?.deapi?.cost); // USD charged for this call, e.g. 0.00000473
+```
+
+Chat models: `deepseek-v4.1-flash`, `deepseek-v4.1-flash:economy`, `glm-5.3`, `glm-5.3-flash`, `gpt-6-luna`, `hy3`, `kimi-k3`, `qwen3.8-flash`, `qwen3.8-max`, `seed-2.0-lite`, `seed-2.0-mini`, `seed-2.0-pro`, `seed-2.1-turbo`. Limits, prices and supported parameters per model are in [deAPI's chat reference](https://docs.deapi.ai/openai-compatibility#chat-completions-llms) and in [`listModels()`](#listing-models).
+
+### Cost of every call
+
+deAPI reports what it charged for each call, in USD, and the provider returns it as `providerMetadata.deapi.cost`, for `generateText` and `streamText` alike. When streaming, the provider always asks for the final usage chunk (`stream_options.include_usage`), which carries the amount:
+
+```ts
+import { streamText } from 'ai';
+
+const result = streamText({
+  model: deapi('qwen3.8-flash'),
+  prompt: 'Explain vector embeddings in two sentences.',
+});
+
+for await (const delta of result.textStream) process.stdout.write(delta);
+console.log((await result.providerMetadata)?.deapi?.cost);
+```
+
+### Tools and structured output
+
+```ts
+import { generateText, Output, tool } from 'ai';
+import { z } from 'zod';
+
+const { toolCalls } = await generateText({
+  model: deapi('deepseek-v4.1-flash'),
+  prompt: 'What is the weather in Warsaw?',
+  tools: {
+    weather: tool({
+      description: 'Current weather for a city',
+      inputSchema: z.object({ city: z.string() }),
+    }),
+  },
+});
+
+const { output } = await generateText({
+  model: deapi('deepseek-v4.1-flash'),
+  prompt: 'A train leaves at 09:47 and arrives at 13:15. How long is the trip?',
+  output: Output.object({ schema: z.object({ minutes: z.number() }) }),
+});
+// output: { minutes: 208 }
+```
+
+Structured output uses `response_format: json_schema`. `glm-5.3` does not accept it, so for that model the provider asks for `json_object` and adds the schema to the prompt as a system message.
+
+### Reasoning
+
+Most chat models think before they answer. Set the effort with the AI SDK `reasoning` option, or with `providerOptions.deapi.reasoningEffort`; both are sent as `reasoning_effort`:
+
+```ts
+const { text, reasoningText } = await generateText({
+  model: deapi('qwen3.8-flash'),
+  prompt: 'How many minutes from 09:47 to 13:15?',
+  reasoning: 'low', // none, minimal, low, medium, high, xhigh, max
+});
+```
+
+The same through provider options, typed with `DeAPIChatOptions`:
+
+```ts
+import type { DeAPIChatOptions } from '@deapi/ai-sdk-provider';
+
+const result = await generateText({
+  model: deapi('glm-5.3'),
+  prompt: 'How many minutes from 09:47 to 13:15?',
+  providerOptions: {
+    deapi: { reasoningEffort: 'high' } satisfies DeAPIChatOptions,
+  },
+});
+```
+
+The reasoning comes back as `reasoningText` (and as reasoning parts in `streamText`), and reasoning tokens count as output and are billed. Models differ in the levels they accept: `glm-5.3` takes only `low`, `high` and `max` and cannot turn thinking off, and `gpt-6-luna` has no `minimal`. An unsupported level is rejected with a 400 that lists the accepted values. With reasoning on, leave room in `maxOutputTokens`: a low limit can end the answer before any text arrives.
+
+## Listing models
+
+`deapi.listModels()` calls `GET /models` with your key and returns the chat models it can use, typed. `listDeAPIModels({ apiKey })` does the same without a provider instance. Pass `{ type: 'media' }` or `{ type: 'all' }` for the image, video, audio and embedding models.
+
+```ts
+import { deapi } from '@deapi/ai-sdk-provider';
+
+const models = await deapi.listModels();
+
+// A model picker: id, context window and price per million tokens.
+const options = models.map((m) => ({
+  value: m.id,
+  label: `${m.id} (${(m.contextLength ?? 0) / 1000}k context, $${((m.pricing?.prompt ?? 0) * 1e6).toFixed(3)} / $${((m.pricing?.completion ?? 0) * 1e6).toFixed(3)} per 1M tokens)`,
+  vision: m.inputModalities?.includes('image') ?? false,
+}));
+```
+
+Each chat model has `contextLength`, `maxOutputTokens`, `inputModalities`, `supportedParameters` and `pricing`. Prices are numbers in **USD per token** (`prompt`, `completion`, and `inputCacheRead` / `inputCacheWrite` where the model bills them separately); multiply by 1,000,000 for the price per million tokens. The list and the prices depend on the key: they are what that account can call and pays.
 
 ## Image generation
 
@@ -245,9 +353,9 @@ The slugs in this README (`Flux1schnell`, `Flux_2_Klein_4B_BF16`, `ZImageTurbo_I
 
 ## Limitations
 
-- **No language / chat / completion models.** `deapi.languageModel(...)` (and therefore chat, tool calling, and structured output) throws `NoSuchModelError`.
+- **Chat:** no text completions (`/completions`) and no Responses API; `glm-5.3` gets structured output through `json_object` and a schema in the prompt (see above). Seed models return an encrypted reasoning state (`reasoning_details`) that this provider does not send back on the next turn; multi-turn conversations work, without that continuity.
 - **No inpainting.** Image editing takes input images and an instruction; a `mask` throws `UnsupportedFunctionalityError`.
-- **No streaming.** None of the deAPI endpoints stream; every call returns one complete result.
+- **No streaming outside chat.** Image, video, audio and embedding calls return one complete result.
 - **Video:** one first-frame image at most; no last-frame, reference, audio, fps, or seed controls (see above).
 
 ## Using `@ai-sdk/openai-compatible` directly
@@ -264,7 +372,7 @@ const deapi = createOpenAICompatible({
 });
 ```
 
-This package adds video, speech, and transcription models, deAPI-specific defaults, lazy auth, base-URL validation, and deAPI error mapping on top of that surface.
+This package adds the cost of every chat call in `providerMetadata`, model listing, video, speech, and transcription models, deAPI-specific defaults, lazy auth, base-URL validation, and deAPI error mapping on top of that surface.
 
 ## Base URL
 
@@ -292,7 +400,7 @@ Errors thrown by this provider are AI SDK `APICallError` instances. These carry 
 
 ## Live smoke test
 
-`examples/smoke.mjs` makes real, billed calls with the smallest settings the API accepts (one 512×512 image, one short sentence of speech and its transcription, one embedding, one 1-second video):
+`examples/smoke.mjs` makes real, billed calls with the smallest settings the API accepts (two 16-token chat replies, one 512×512 image, one short sentence of speech and its transcription, one embedding, one 1-second video):
 
 ```bash
 npm ci && npm run build

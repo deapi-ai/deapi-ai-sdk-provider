@@ -4,6 +4,34 @@ All notable changes to `@deapi/ai-sdk-provider` are documented here. The project
 follows [semantic versioning](https://semver.org/) (while in `0.x`, a minor
 version may contain breaking changes).
 
+## 0.4.0
+
+### Added
+
+- **Chat.** `deapi(modelId)`, `deapi.languageModel(modelId)` and
+  `deapi.chatModel(modelId)` return chat models for `generateText` and
+  `streamText` on deAPI's `/chat/completions`: 13 open models
+  (`deepseek-v4.1-flash`, `qwen3.8-flash`, `kimi-k3`, `glm-5.3`,
+  `seed-2.1-turbo` and more) with tools, structured output and reasoning.
+  Until now `languageModel` threw `NoSuchModelError`.
+- **Cost of every chat call** as `providerMetadata.deapi.cost` (USD, the amount
+  deAPI charged), also when streaming: streams always ask for the final usage
+  chunk.
+- **Reasoning effort** from the AI SDK `reasoning` option or
+  `providerOptions.deapi.reasoningEffort`, sent as `reasoning_effort`;
+  reasoning text comes back as `reasoningText`.
+- Structured output on `glm-5.3`, which rejects `json_schema`: the provider
+  asks for `json_object` and puts the schema in a system message (also for
+  `:` variants of the id).
+- `DeAPIChatOptions` type for `providerOptions.deapi` (`reasoningEffort`,
+  `user`, `textVerbosity`, `strictJsonSchema`).
+- **Model listing.** `deapi.listModels({ type })` and `listDeAPIModels()`
+  return the models a key can call from `GET /models`: chat models by default,
+  with context window, output limit, input modalities, supported parameters
+  and prices in USD per token. A malformed entry is skipped instead of failing
+  the whole list, and an unreadable price drops only the prices.
+- `examples/smoke.mjs` checks chat (`generateText` and `streamText` with cost).
+
 ## 0.3.1
 
 ### Documentation

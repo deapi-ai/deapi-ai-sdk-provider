@@ -1,5 +1,4 @@
 import {
-  NoSuchModelError,
   UnsupportedFunctionalityError,
   type ImageModelV4CallOptions,
 } from '@ai-sdk/provider';
@@ -139,18 +138,17 @@ describe('createDeAPI: provider shape', () => {
 });
 
 describe('languageModel', () => {
-  it('throws NoSuchModelError (modelType languageModel)', () => {
+  it('deapi(id), languageModel(id) and chatModel(id) return the same chat model', () => {
     const deapi = createDeAPI({ apiKey: 'sk-dp-x' });
-    let thrown: unknown;
-    try {
-      deapi.languageModel('whatever');
-    } catch (e) {
-      thrown = e;
+    for (const model of [
+      deapi('deepseek-v4.1-flash'),
+      deapi.languageModel('deepseek-v4.1-flash'),
+      deapi.chatModel('deepseek-v4.1-flash'),
+    ]) {
+      expect(model.specificationVersion).toBe('v4');
+      expect(model.provider).toBe('deapi.chat');
+      expect(model.modelId).toBe('deepseek-v4.1-flash');
     }
-    expect(NoSuchModelError.isInstance(thrown)).toBe(true);
-    expect((thrown as NoSuchModelError).name).toBe('AI_NoSuchModelError');
-    expect((thrown as NoSuchModelError).modelType).toBe('languageModel');
-    expect((thrown as NoSuchModelError).modelId).toBe('whatever');
   });
 });
 
