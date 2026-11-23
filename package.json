@@ -74,7 +74,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^4.1.8",
     "ai": "^7.0.173",
     "eslint": "^10.4.1",
